@@ -50,7 +50,7 @@ class VehicleOdometryListener : public rclcpp::Node
 public:
 	explicit VehicleOdometryListener() : Node("vehicle_odometry_listener") {
 		subscription_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
-			"VehicleOdometry_PubSubTopic",
+			"fmu/vehicle_odometry/out",
 #ifdef ROS_DEFAULT_API
             10,
 #endif

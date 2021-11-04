@@ -46,10 +46,12 @@
 #include <px4_msgs/msg/offboard_control_mode.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/timesync.hpp>
+#include <px4_msgs/msg/vehicle_odometry.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
 #include <px4_msgs/msg/vehicle_control_mode.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <stdint.h>
+#include <math.h>
 
 #include <chrono>
 #include <iostream>
@@ -84,12 +86,27 @@ public:
 					timestamp_.store(msg->timestamp);
 				});
 
-		offboard_setpoint_counter_ = 0;
+// 		// get position information <- how do I access these only in the trajectory_setpoint action?
+// 		subscription_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
+// 			"fmu/vehicle_odometry/out",
+// #ifdef ROS_DEFAULT_API
+//             10,
+// #endif
+// 			[this](const px4_msgs::msg::VehicleOdometry::UniquePtr msg) {
+// 			std::cout << "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
+// 			std::cout << "RECEIVED VEHICLE ODOMETRY DATA"   << std::endl;
+// 			std::cout << "============================="   << std::endl;
+// 			std::cout << "x_vo: " << msg->x    << std::endl;
+// 			std::cout << "y_vo: " << msg->y  << std::endl;
+// 			std::cout << "z_vo: " << msg->z  << std::endl;
+// 		});
 
+		offboard_setpoint_counter_ = 0;
+		// timer_callback: message data is set, messages are published
 		auto timer_callback = [this]() -> void {
 
 			if (offboard_setpoint_counter_ == 10) {
-				// Change to Offboard mode after 10 setpoints
+				// Change to Offboard mode after 10 setpoints (presumably as a 'runup' check)
 				this->publish_vehicle_command(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
 
 				// Arm the vehicle
@@ -99,12 +116,14 @@ public:
             		// offboard_control_mode needs to be paired with trajectory_setpoint
 			publish_offboard_control_mode();
 			publish_trajectory_setpoint();
+					
 
            		 // stop the counter after reaching 11
 			if (offboard_setpoint_counter_ < 11) {
 				offboard_setpoint_counter_++;
 			}
 		};
+		// determines requency of timer_callback, 100ms -> 10 Hz
 		timer_ = this->create_wall_timer(100ms, timer_callback);
 	}
 
@@ -118,6 +137,7 @@ private:
 	rclcpp::Publisher<TrajectorySetpoint>::SharedPtr trajectory_setpoint_publisher_;
 	rclcpp::Publisher<VehicleCommand>::SharedPtr vehicle_command_publisher_;
 	rclcpp::Subscription<px4_msgs::msg::Timesync>::SharedPtr timesync_sub_;
+	rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr subscription_;
 
 	std::atomic<uint64_t> timestamp_;   //!< common synced timestamped
 
@@ -169,13 +189,24 @@ void OffboardControl::publish_offboard_control_mode() const {
  *        For this example, it sends a trajectory setpoint to make the
  *        vehicle hover at 5 meters with a yaw angle of 180 degrees.
  */
+// Global Variable: start time
+auto start = std::chrono::system_clock::now();
+
 void OffboardControl::publish_trajectory_setpoint() const {
 	TrajectorySetpoint msg{};
 	msg.timestamp = timestamp_.load();
-	msg.x = 0.0;
+	auto end = std::chrono::system_clock::now();
+	std::chrono::duration<double> diff = end - start;
+	// Quick demo of time-dependent period trajectory
+	// I thought I could do end.count() (and avoid a global variable) but this did not work
+	msg.x = cos(diff.count());
 	msg.y = 0.0;
 	msg.z = -5.0;
 	msg.yaw = -3.14; // [-PI:PI]
+
+	std::cout << "x:    " << msg.x << '\n';
+	//std::cout << "y:    " << msg.y << '\n';
+	std::cout << "time:    " << diff.count() << " s\n";
 
 	trajectory_setpoint_publisher_->publish(msg);
 }
@@ -203,6 +234,7 @@ void OffboardControl::publish_vehicle_command(uint16_t command, float param1,
 }
 
 int main(int argc, char* argv[]) {
+
 	std::cout << "Starting offboard control node..." << std::endl;
 	setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 	rclcpp::init(argc, argv);

@@ -18,7 +18,3 @@ rtps:
     send: true
   - msg: VehicleLocalPosition
     send: true
-  - msg: VehicleGlobalPosition
-    send: true
-  - msg: VehicleAttitude
-    send: true

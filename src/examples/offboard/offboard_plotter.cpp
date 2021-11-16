@@ -56,6 +56,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <fstream>
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
@@ -89,25 +90,8 @@ public:
 		vehicle_local_position_sub_ =
 			this->create_subscription<px4_msgs::msg::VehicleLocalPosition>("fmu/vehicle_local_position/out", 10,
 				[this](const px4_msgs::msg::VehicleLocalPosition::UniquePtr msg) {
-					//xpos_.store(msg->x);
 					xpos_ = msg->x;
-		 			//std::cout << "xpos_: " << xpos_.load()    << std::endl;
-		 			std::cout << "xpos_: " << xpos_  << std::endl;
 				});
-// 		// get position information <- how do I access these only in the trajectory_setpoint
-// 		subscription_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
-// 			"fmu/vehicle_odometry/out",
-// #ifdef ROS_DEFAULT_API
-//             10,
-// #endif
-// 			[this](const px4_msgs::msg::VehicleOdometry::UniquePtr msg) {
-// 			std::cout << "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
-// 			std::cout << "RECEIVED VEHICLE ODOMETRY DATA"   << std::endl;
-// 			std::cout << "============================="   << std::endl;
-// 			std::cout << "x_vo: " << msg->x    << std::endl;
-// 			std::cout << "y_vo: " << msg->y  << std::endl;
-// 			std::cout << "z_vo: " << msg->z  << std::endl;
-// 		});
 
 		offboard_setpoint_counter_ = 0;
 		// timer_callback: message data is set, messages are published
@@ -133,7 +117,7 @@ public:
 			}
 		};
 		// determines requency of timer_callback, 100ms -> 10 Hz
-		timer_ = this->create_wall_timer(100ms, timer_callback);
+		timer_ = this->create_wall_timer(1ms, timer_callback);
 	}
 
 	void arm() const;
@@ -149,7 +133,6 @@ private:
 	rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr vehicle_local_position_sub_;
 
 	std::atomic<uint64_t> timestamp_;   //!< common synced timestamped
-	//std::atomic<uint64_t> xpos_;   //!< x position subscription
 	double xpos_; // x position subscription
 
 	uint64_t offboard_setpoint_counter_;   //!< counter for the number of setpoints sent
@@ -194,7 +177,6 @@ void OffboardControl::publish_offboard_control_mode() const {
 	offboard_control_mode_publisher_->publish(msg);
 }
 
-
 /**
  * @brief Publish a trajectory setpoint
  *        For this example, it sends a trajectory setpoint to make the
@@ -202,6 +184,7 @@ void OffboardControl::publish_offboard_control_mode() const {
  */
 // Global Variable: start time
 auto start = std::chrono::system_clock::now();
+std::ofstream outputData;
 
 void OffboardControl::publish_trajectory_setpoint() const {
 	TrajectorySetpoint msg{};
@@ -214,12 +197,14 @@ void OffboardControl::publish_trajectory_setpoint() const {
 	msg.y = 0.0;
 	msg.z = -5.0;
 	msg.yaw = -3.14; // [-PI:PI]
+	// Send data to the stream
+	outputData << diff.count() << ",";
+	outputData << msg.x << ",";
+	outputData << xpos_ << "\n";
 
-	std::cout << "x_sp:    " << msg.x << '\n';
-	//std::cout << "x_pos (loop):    " << xpos_.load() << '\n';
-	std::cout << "x_pos (loop):    " << xpos_ << '\n';
-	//std::cout << "y:    " << msg.y << '\n';
-	std::cout << "time:    " << diff.count() << " s\n";
+	// std::cout << "x_sp:    " << msg.x << '\n';
+	// std::cout << "x_pos (loop):    " << xpos_ << '\n';
+	// std::cout << "time:    " << diff.count() << " s\n";
 
 	trajectory_setpoint_publisher_->publish(msg);
 }
@@ -249,10 +234,16 @@ void OffboardControl::publish_vehicle_command(uint16_t command, float param1,
 int main(int argc, char* argv[]) {
 
 	std::cout << "Starting offboard control node..." << std::endl;
+	// Open filestream object
+	outputData.open("px4_ros_com_ros2/src/px4_ros_com/src/examples/offboard/output.csv");
+	// Define column names
+	outputData << "time,x_sp,xpos_" << "\n";
+
 	setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 	rclcpp::init(argc, argv);
 	rclcpp::spin(std::make_shared<OffboardControl>());
 
 	rclcpp::shutdown();
+	outputData.close();
 	return 0;
 }

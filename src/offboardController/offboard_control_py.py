@@ -51,6 +51,10 @@ from px4_msgs.msg import Timesync
 from px4_msgs.msg import VehicleCommand
 from px4_msgs.msg import VehicleControlMode
 import sys
+#from PX4Control import computeRateAndThrustFromState
+from PX4Control import PX4Control
+from envs.BaseAviary import DroneModel
+import numpy as np
 
 
 class OffboardControl(Node):
@@ -120,6 +124,23 @@ class OffboardControl(Node):
         msg.z = -10.0
         msg.yaw = -3.14  # [-PI:PI]
         # self.get_logger().info("trajectory setpoint send")
+        ctrl = [
+            PX4Control(drone_model=DroneModel.X500, Ts=1e-2)
+        ]
+        print(ctrl[0].computeRateAndThrustFromState(
+            # control_timestep=CTRL_EVERY_N_STEPS * env.TIMESTEP,
+            state=np.zeros((16,0)),
+            target_pos=np.zeros((3,0)),
+            # target_rpy=INIT_RPYS[0, :]
+        ))
+        # print(computeRateAndThrustFromState(
+        #         # control_timestep=CTRL_EVERY_N_STEPS * env.TIMESTEP,
+        #         state=obs[str(0)]["state"],
+        #         target_pos=np.hstack(
+        #             [TARGET_POS[wp_counters[0], 0:2], INIT_XYZS[0, 2]]),
+        #         # target_rpy=INIT_RPYS[0, :]
+        #     ))
+
         self.trajectory_setpoint_publisher_.publish(msg)
 
     #  @ brief Publish vehicle commands

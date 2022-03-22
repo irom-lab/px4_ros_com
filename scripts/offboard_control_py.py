@@ -117,7 +117,7 @@ class OffboardControl(Node):
         msg.timestamp = self.timestamp_
         msg.x = 0.0
         msg.y = 0.0
-        msg.z = -10.0
+        msg.z = -5.0
         msg.yaw = -3.14  # [-PI:PI]
         # self.get_logger().info("trajectory setpoint send")
         self.trajectory_setpoint_publisher_.publish(msg)

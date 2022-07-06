@@ -51,11 +51,12 @@ from px4_msgs.msg import Timesync
 from px4_msgs.msg import VehicleCommand
 from px4_msgs.msg import VehicleControlMode
 import sys
+import numpy as np
+from px4_msgs.msg import VehicleRatesSetpoint
 
 from px4_msgs.msg import VehicleAttitude
 from px4_msgs.msg import VehicleLocalPosition
 from px4_msgs.msg import VehicleGlobalPosition
-
 
 class OffboardControl(Node):
     def __init__(self):
@@ -73,6 +74,8 @@ class OffboardControl(Node):
             OffboardControlMode, "fmu/offboard_control_mode/in", 10)
         self.trajectory_setpoint_publisher_ = self.create_publisher(
             TrajectorySetpoint, "fmu/trajectory_setpoint/in", 10)
+        self.vehicle_rates_setpoint_publisher_ = self.create_publisher(
+            VehicleRatesSetpoint, "fmu/vehicle_rates_setpoint/in", 10)
         self.vehicle_command_publisher_ = self.create_publisher(
             VehicleCommand, "fmu/vehicle_command/in", 10)
         self.timesync_sub_ = self.create_subscription(
@@ -85,7 +88,7 @@ class OffboardControl(Node):
         self.vehicle_global_position_sub_ = self.create_subscription(
             VehicleGlobalPosition, "fmu/vehicle_global_position/out", self.vehicle_global_position_callback, 10)
 
-        timer_period = 0.1  # seconds
+        timer_period = 0.01  # seconds
         self.timer_ = self.create_timer(
             timer_period, self.timer_callback)
 
@@ -107,11 +110,9 @@ class OffboardControl(Node):
             self.arm()
         # offboard_control_mode needs to be paired with trajectory_setpoint
         self.publish_offboard_control_mode()
-        self.publish_trajectory_setpoint()
-
-        print(self.vehicle_attitude_) #Nate
-        print(self.vehicle_local_position_) #Nate
-        print(self.vehicle_global_position_) #Nate
+        #self.publish_trajectory_setpoint()
+        # addition of vehicle_rates_setpoint - presumed paired with offboard_control_mode from previous lines
+        self.publish_vehicle_rates_setpoint()
 
         if (self.offboard_setpoint_counter_ < 11):
             self.offboard_setpoint_counter_ += 1
@@ -133,11 +134,11 @@ class OffboardControl(Node):
     def publish_offboard_control_mode(self):
         msg = OffboardControlMode()
         msg.timestamp = self.timestamp_
-        msg.position = True
+        msg.position = False
         msg.velocity = False
         msg.acceleration = False
         msg.attitude = False
-        msg.body_rate = False
+        msg.body_rate = True
         # self.get_logger().info("offboard control mode publisher send")
         self.offboard_control_mode_publisher_.publish(msg)
 
@@ -145,12 +146,24 @@ class OffboardControl(Node):
     def publish_trajectory_setpoint(self):
         msg = TrajectorySetpoint()
         msg.timestamp = self.timestamp_
-        msg.x = 0.0
-        msg.y = 0.0
-        msg.z = -5.0
+        x = 3
+        y = 2
+        z = -15
+        msg.position = np.array([np.float32(x), np.float32(y), np.float32(z)])
+        #msg.body_rate = np.array([np.float32(x), np.float32(y), np.float32(z)])
         msg.yaw = -3.14  # [-PI:PI]
         # self.get_logger().info("trajectory setpoint send")
         self.trajectory_setpoint_publisher_.publish(msg)
+
+    # @ brief Publish a vehicl rates setpointsource ~/px4_ros_com_ros2/install/setup.bash
+    def publish_vehicle_rates_setpoint(self):
+        msg = VehicleRatesSetpoint()
+        msg.timestamp = self.timestamp_
+        #print(self.timestamp_)
+        msg.roll = 0.0
+        msg.pitch = 0.0
+        msg.yaw = 10.0
+        msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), np.float32(1.0)])
 
     #  @ brief Publish vehicle commands
     #  @ param command   Command code(matches VehicleCommand and MAVLink MAV_CMD codes)

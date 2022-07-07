@@ -43,6 +43,7 @@
 #  * of the TrajectorySetpoint message shall change.
 #  */
 
+# ROS2 Imports
 import rclpy
 from rclpy.node import Node
 from px4_msgs.msg import OffboardControlMode
@@ -51,12 +52,19 @@ from px4_msgs.msg import Timesync
 from px4_msgs.msg import VehicleCommand
 from px4_msgs.msg import VehicleControlMode
 import sys
+# Body Rate Setpoint Imports
 import numpy as np
 from px4_msgs.msg import VehicleRatesSetpoint
 
+#State Estimation Imports
 from px4_msgs.msg import VehicleAttitude
 from px4_msgs.msg import VehicleLocalPosition
 from px4_msgs.msg import VehicleGlobalPosition
+
+#PX4Control Imports
+#from PX4Control import computeRateAndThrustFromState
+from PX4Control import PX4Control
+from envs.BaseAviary import DroneModel
 
 class OffboardControl(Node):
     def __init__(self):
@@ -98,7 +106,7 @@ class OffboardControl(Node):
     def vehicle_attitude_callback(self, msg):
         self.vehicle_attitude_ = msg.q
     def vehicle_local_position_callback(self, msg):
-        self.vehicle_local_position_ = msg.x
+        self.vehicle_local_position_state_ = np.array([msg.x,msg.y,msg.z])
     def vehicle_global_position_callback(self, msg):
         self.vehicle_global_position_ = msg.lat
 
@@ -150,17 +158,21 @@ class OffboardControl(Node):
         y = 2
         z = -15
         msg.position = np.array([np.float32(x), np.float32(y), np.float32(z)])
-        #msg.body_rate = np.array([np.float32(x), np.float32(y), np.float32(z)])
-        msg.yaw = -3.14  # [-PI:PI]
         # self.get_logger().info("trajectory setpoint send")
+        self.trajectory_setpoint_publisher_.publish(msg)
+
+    def get_body_rates_from_PX4_Control(self):
         ctrl = [
             PX4Control(drone_model=DroneModel.X500, Ts=1e-2)
         ]
+        print('local position: ' + str(self.vehicle_local_position_state_))
+        print(np.shape(self.vehicle_local_position_state_))
+        state_vec = np.zeros(20,)
+        state_vec[0:3] = self.vehicle_local_position_state_
+        print(np.shape(state_vec))        
         print(ctrl[0].computeRateAndThrustFromState(
-            # control_timestep=CTRL_EVERY_N_STEPS * env.TIMESTEP,
-            state=np.zeros((16,0)),
-            target_pos=np.zeros((3,0)),
-            # target_rpy=INIT_RPYS[0, :]
+            state=state_vec, #proper shape: (20,)
+            target_pos=np.zeros((3,)), #proper shape: (3,)
         ))
         # print(computeRateAndThrustFromState(
         #         # control_timestep=CTRL_EVERY_N_STEPS * env.TIMESTEP,
@@ -170,10 +182,9 @@ class OffboardControl(Node):
         #         # target_rpy=INIT_RPYS[0, :]
         #     ))
 
-        self.trajectory_setpoint_publisher_.publish(msg)
-
     # @ brief Publish a vehicl rates setpointsource ~/px4_ros_com_ros2/install/setup.bash
     def publish_vehicle_rates_setpoint(self):
+        self.get_body_rates_from_PX4_Control()
         msg = VehicleRatesSetpoint()
         msg.timestamp = self.timestamp_
         #print(self.timestamp_)

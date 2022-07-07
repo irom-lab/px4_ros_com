@@ -88,7 +88,7 @@ class OffboardControl(Node):
         self.vehicle_global_position_sub_ = self.create_subscription(
             VehicleGlobalPosition, "fmu/vehicle_global_position/out", self.vehicle_global_position_callback, 10)
 
-        timer_period = 0.01  # seconds
+        timer_period = 0.1  # seconds
         self.timer_ = self.create_timer(
             timer_period, self.timer_callback)
 
@@ -110,7 +110,7 @@ class OffboardControl(Node):
             self.arm()
         # offboard_control_mode needs to be paired with trajectory_setpoint
         self.publish_offboard_control_mode()
-        #self.publish_trajectory_setpoint()
+        self.publish_trajectory_setpoint()
         # addition of vehicle_rates_setpoint - presumed paired with offboard_control_mode from previous lines
         self.publish_vehicle_rates_setpoint()
 
@@ -139,7 +139,7 @@ class OffboardControl(Node):
         msg.acceleration = False
         msg.attitude = False
         msg.body_rate = True
-        # self.get_logger().info("offboard control mode publisher send")
+        #self.get_logger().info("offboard control mode publisher send")
         self.offboard_control_mode_publisher_.publish(msg)
 
     # @ brief Publish a trajectory setpoint For this example, it sends a trajectory setpoint to make the vehicle hover at 5 meters with a yaw angle of 180 degrees.
@@ -161,10 +161,11 @@ class OffboardControl(Node):
         msg.timestamp = self.timestamp_
         #print(self.timestamp_)
         msg.roll = 0.0
-        msg.pitch = 0.0
-        msg.yaw = 10.0
-        msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), np.float32(1.0)])
-
+        msg.pitch = 10.0
+        msg.yaw = 0.0
+        msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), np.float32(-0.7)])
+        #rint(msg.thrust_body)
+        self.vehicle_rates_setpoint_publisher_.publish(msg)
     #  @ brief Publish vehicle commands
     #  @ param command   Command code(matches VehicleCommand and MAVLink MAV_CMD codes)
     #  @ param param1    Command parameter 1

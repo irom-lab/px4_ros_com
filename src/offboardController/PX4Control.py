@@ -48,7 +48,7 @@ class PX4Control(BaseControl):
             )
             exit()
 
-        # self.orient = 'ENU'  # z up
+        # self.orient = 'ENU'  # z up (original)
         self.orient = 'NED'  # z down
         self.g = 9.8
 

@@ -35,6 +35,9 @@
 #  * @file offboard_control_feedback.py
 #  * @ author < nsimon@princeton.edu >
 #  * @ author Nate Simon
+#  * @ based on: offboard_control_py.py
+#  * @ author < hanghaotian@gmail.com >
+#  * @ author Haotian Hang
 #  */
 
 # ROS2 Imports

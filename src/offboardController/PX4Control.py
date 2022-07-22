@@ -6,6 +6,8 @@ from control.BaseControl import BaseControl
 from envs.BaseAviary import DroneModel
 from utils.control import RotToQuat, quatMultiply, quatInverse, quat2Dcm
 
+#Added
+from scipy.spatial.transform import Rotation as R
 
 rad2deg = 180.0 / np.pi
 deg2rad = np.pi / 180.0
@@ -46,7 +48,8 @@ class PX4Control(BaseControl):
             )
             exit()
 
-        self.orient = 'ENU'  # z up
+        # self.orient = 'ENU'  # z up
+        self.orient = 'NED'  # z down
         self.g = 9.8
 
         # Set up params
@@ -54,6 +57,7 @@ class PX4Control(BaseControl):
             self.mB = 1.2105
             dxm = dym = 0.25
             MAX_RPM = 8000
+            # Gains used in gym_pybullet_drones
             self.pos_P_gain = np.array([0.95, 0.95, 1.0])
             self.vel_P_gain = np.array([1.8, 1.8, 4.0])
             self.vel_D_gain = np.array([0.2, 0.2, 0.0])
@@ -72,10 +76,14 @@ class PX4Control(BaseControl):
             self.rate_P_gain = np.array([0.0003, 0.0003, 0])
             self.rate_D_gain = np.array([0.00001, 0.000001, 0])
 
-        # Attitude P gains
-        Pphi = 6.5  # 1.0
+        # # Attitude P gains (used in gym_pybullet_drones)
+        # Pphi = 6.5  # 1.0
+        # Ptheta = Pphi
+        # Ppsi = 2.8  # 0.2
+        # Original
+        Pphi = 1.0
         Ptheta = Pphi
-        Ppsi = 2.8  # 0.2
+        Ppsi = 0.2
         self.att_P_gain = np.array([Pphi, Ptheta, Ppsi])
 
         self.maxThr = (4 * self.KF * MAX_RPM**2)  # 0.5953
@@ -248,7 +256,7 @@ class PX4Control(BaseControl):
                                       target_pos,
                                       rate_residual=np.zeros((3)),
                                       thrust_residual=0):
-        """Computes the PID control action (as RPMs) for a single drone.
+        """Computes the PID control action (as body rates and thrust) for a single drone.
 
         Parameters
         ----------
@@ -278,7 +286,10 @@ class PX4Control(BaseControl):
         self.vel = state[10:13]
         self.ang_vel = state[13:16]  # in world frame
 
-        self.dcm = quat2Dcm(self.quat)
+        #self.dcm = quat2Dcm(self.quat)
+        self.dcm = R.from_quat([self.quat]).as_matrix()[0]
+        # np.set_printoptions(precision=1)
+        # print(str(self.dcm))
         self.omega = np.dot(
             self.dcm.transpose(),
             self.ang_vel)  # body rate
@@ -292,6 +303,7 @@ class PX4Control(BaseControl):
         # Desired State (Create a copy, hence the [:])
         # ---------------------------
         self.pos_sp = target_pos
+        # print(str(self.pos)+', ' + str(self.pos_sp)+', '+str(self.pos-self.pos_sp))
         self.vel_sp = np.zeros((3))
         self.acc_sp = np.zeros((3))
         self.thrust_sp = np.zeros((3))
@@ -306,7 +318,6 @@ class PX4Control(BaseControl):
         self.xy_vel_control()
         self.thrustToAttitude()
         self.attitude_control()
-
         self.rate_sp += rate_residual
         thrust = np.linalg.norm(self.thrust_sp) + thrust_residual
 
@@ -319,7 +330,9 @@ class PX4Control(BaseControl):
         # Z Position Control
         # ---------------------------
         pos_error = self.pos_sp[0:3] - self.pos
+        #print(pos_error)
         self.vel_sp[0:3] += self.pos_P_gain[0:3] * pos_error
+        #print(self.vel_sp)
 
     def saturateVel(self):
 
@@ -327,11 +340,13 @@ class PX4Control(BaseControl):
         # ---------------------------
         # Either saturate each velocity axis separately, or total velocity (prefered)
         if (self.saturateVel_separetely):
+            print('saturateVel_separetely')
             self.vel_sp = np.clip(
                 self.vel_sp, -self.velMax, self.velMax)
         else:
             totalVel_sp = np.linalg.norm(self.vel_sp)
             if (totalVel_sp > self.velMaxAll):
+                print('vel_max')
                 self.vel_sp = self.vel_sp / totalVel_sp * self.velMaxAll
 
     def z_vel_control(self):
@@ -342,13 +357,19 @@ class PX4Control(BaseControl):
         # allow hover when the position and velocity error are nul
         vel_z_error = self.vel_sp[2] - self.vel[2]
         if (self.orient == "NED"):
+            # print('NED') #FALSE
             thrust_z_sp = self.vel_P_gain[2] * vel_z_error - self.vel_D_gain[
                 2] * self.vel_dot[2] + self.mB * (self.acc_sp[2] -
                                                   self.g) + self.thr_int[2]
         elif (self.orient == "ENU"):
+            # print('ENU') #TRUE
             thrust_z_sp = self.vel_P_gain[2] * vel_z_error - self.vel_D_gain[
                 2] * self.vel_dot[2] + self.mB * (self.acc_sp[2] +
                                                   self.g) + self.thr_int[2]
+        # print('vel_z_error: ' + str(self.vel_P_gain[2] * vel_z_error))
+        # print('vel_dot: ' + str(- self.vel_D_gain[2] * self.vel_dot[2]))
+        # print('term: '+str(self.mB * (self.acc_sp[2] - self.g) + self.thr_int[2]))
+        # print('thrust_z_sp: ' + str(thrust_z_sp))
 
         # Get thrust limits
         if (self.orient == "NED"):
@@ -380,6 +401,7 @@ class PX4Control(BaseControl):
         # XY Velocity Control (Thrust in NE-direction)
         # ---------------------------
         vel_xy_error = self.vel_sp[0:2] - self.vel[0:2]
+        # print(vel_xy_error)
         thrust_xy_sp = self.vel_P_gain[0:2] * vel_xy_error - self.vel_D_gain[
             0:2] * self.vel_dot[0:2] + self.mB * (
                 self.acc_sp[0:2]) + self.thr_int[0:2]
@@ -479,9 +501,9 @@ class PX4Control(BaseControl):
         self.rate_sp += quat2Dcm(quatInverse(self.quat)
                                  )[:, 2] * self.yawFF
 
-        # Limit rate setpoint
-        self.rate_sp = np.clip(
-            self.rate_sp, -self.rateMax, self.rateMax)
+        # # Limit rate setpoint #NATE
+        # self.rate_sp = np.clip(
+        #     self.rate_sp, -self.rateMax, self.rateMax)
 
     def rate_control(self):
 

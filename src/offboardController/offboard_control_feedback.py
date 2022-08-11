@@ -31,7 +31,8 @@
 #  ****************************************************************************/
 
 # /**
-#  * @brief Offboard control with state estimation from PX4 and controller from gym-pybullet-drones PX4
+#  * @brief Offboard control with state estimation from PX4 and controller architecture from gym-pybullet-drones and Quadcopter_SimCon (for PX4-Autopilot in python)
+#  * @built from: https://github.com/utiasDSL/gym-pybullet-drones / https://github.com/bobzwik/Quadcopter_SimCon/blob/master/Simulation/ctrl.py
 #  * @file offboard_control_feedback.py
 #  * @ author < nsimon@princeton.edu >
 #  * @ author Nate Simon
@@ -56,16 +57,23 @@ from px4_msgs.msg import Timesync
 from px4_msgs.msg import VehicleCommand
 from px4_msgs.msg import VehicleControlMode
 # PX4 Imported Messages - State Estimation
-# from px4_msgs.msg import VehicleAttitude
-# from px4_msgs.msg import VehicleLocalPosition
-# from px4_msgs.msg import VehicleGlobalPosition
 from px4_msgs.msg import VehicleOdometry
 # PX4 Imported Messages - Control
 from px4_msgs.msg import VehicleRatesSetpoint
 
 # PX4Control Imports
 from PX4Control import PX4Control
-from envs.BaseAviary import DroneModel
+from envs.BaseAviary import DroneModel # from gym-pybullet-drones framework
+
+# Imports for debugging
+import time
+import matplotlib.pyplot as plt
+# Debugging variables. ctrl+F "ie " / "ie_" to identify such variables... loggie, countie, etc...
+countie = 0
+duration = 5
+countie_end = duration*10 # 10 works for a 10 Hz sampling rate
+loggie = np.zeros((countie_end,10))
+print('loggie shape: '+ str(np.shape(loggie)))
 
 class OffboardControl(Node):
     def __init__(self):
@@ -74,7 +82,12 @@ class OffboardControl(Node):
         self.offboard_setpoint_counter_ = 0  # counter for the number of setpoints sent
         self.timestamp_ = 0  # in python because of GIL,  the basic operations are already atomic
 
-        # there must be a better way to create placeholder initial values - are these necessary?
+        # TODO: better way to create placeholder values - are these necessary?
+        self.vehicle_pos_ = 0
+        self.vehicle_quat_ = 0
+        self.vehicle_rpy_ = 0
+        self.vehicle_vel_ = 0
+        self.vehicle_ang_v_ = 0
         self.vehicle_attitude_ = 0
         self.vehicle_local_position_ = 0
         self.vehicle_global_position_ = 0
@@ -90,12 +103,6 @@ class OffboardControl(Node):
         self.timesync_sub_ = self.create_subscription(
             Timesync, "fmu/timesync/out", self.timesync_callback, 10)
 
-        # self.vehicle_attitude_sub_ = self.create_subscription(
-        #     VehicleAttitude, "fmu/vehicle_attitude/out", self.vehicle_attitude_callback, 10)
-        # self.vehicle_local_position_sub_ = self.create_subscription(
-        #     VehicleLocalPosition, "fmu/vehicle_local_position/out", self.vehicle_local_position_callback, 10)
-        # self.vehicle_global_position_sub_ = self.create_subscription(
-        #     VehicleGlobalPosition, "fmu/vehicle_global_position/out", self.vehicle_global_position_callback, 10)
         self.vehicle_odometry_sub_ = self.create_subscription(
             VehicleOdometry, "fmu/vehicle_odometry/out", self.vehicle_odometry_callback, 10)
 
@@ -106,24 +113,14 @@ class OffboardControl(Node):
     def timesync_callback(self, msg):
         self.timestamp_ = msg.timestamp
     def vehicle_odometry_callback(self, msg):
-        #TO-DO: Check orientations
-        self.vehicle_pos_ = np.array([msg.x,msg.y,msg.z])
-        self.vehicle_quat_ = msg.q
-        self.vehicle_rpy_ = p.getEulerFromQuaternion(self.vehicle_quat_) # convert from quat or VehicleAttitudeSetpoint ?
-        self.vehicle_vel_ = np.array([msg.vx,msg.vy,msg.vz])
-        self.vehicle_ang_v_ = np.array([msg.rollspeed,msg.pitchspeed,msg.yawspeed])
-
-    # def vehicle_attitude_callback(self, msg):
-    #     self.vehicle_quat_ = msg.q
-    #     #        self.vehicle_rpy_ = np.array([msg.x,msg.y,msg.z]) # convert from quat or VehicleAttitudeSetpoint ?
-    # def vehicle_local_position_callback(self, msg):
-    #     self.vehicle_pos_ = np.array([msg.x,msg.y,msg.z])
-    #     self.vehicle_vel_ = np.array([msg.vx,msg.vy,msg.vz])
-    #     #self.vehicle_local_position_state_ = np.array([msg.x,msg.y,msg.z])
-    #     # self.vehicle_local_position_state_ = np.hstack([self.pos[nth_drone, :], self.quat[nth_drone, :], self.rpy[nth_drone, :],
-    #     #                    self.vel[nth_drone, :], self.ang_v[nth_drone, :], self.last_clipped_action[nth_drone, :]])
-    # def vehicle_global_position_callback(self, msg):
-    #     self.vehicle_global_position_ = msg.lat
+        # self.vehicle_pos_ = np.array([msg.positin]).reshape((3,)) # see: version of vehicle_odometry
+        self.vehicle_pos_ = np.array([msg.x,msg.y,msg.z]) #NED
+        self.vehicle_quat_ = msg.q #FRD
+        self.vehicle_rpy_ = p.getEulerFromQuaternion(self.vehicle_quat_) # Euler angles not used for control
+        self.vehicle_vel_ = np.array([msg.vx,msg.vy,msg.vz]) #NED
+        # self.vehicle_vel_ = np.array([msg.velocity]).reshape((3,)) # see: version of vehicle_odometry
+        self.vehicle_ang_v_ = np.array([msg.rollspeed,msg.pitchspeed,msg.yawspeed]) #FRD (body axes)
+        # self.vehicle_ang_v_ = np.array([msg.angular_velocity]).reshape((3,)) # see: version of vehicle_odometry
 
     def timer_callback(self):
         if (self.offboard_setpoint_counter_ == 10):
@@ -133,9 +130,9 @@ class OffboardControl(Node):
             self.arm()
         # offboard_control_mode needs to be paired with trajectory_setpoint
         self.publish_offboard_control_mode()
-        #self.publish_trajectory_setpoint()
-        # addition of vehicle_rates_setpoint - presumed paired with offboard_control_mode from previous lines
-        self.publish_vehicle_rates_setpoint()
+        # publish setpoint here: (note: must match offboard_control_mode)
+        # self.publish_trajectory_setpoint()
+        self.publish_vehicle_rates_setpoint() # note: NED
 
         if (self.offboard_setpoint_counter_ < 11):
             self.offboard_setpoint_counter_ += 1
@@ -169,33 +166,33 @@ class OffboardControl(Node):
     def publish_trajectory_setpoint(self):
         msg = TrajectorySetpoint()
         msg.timestamp = self.timestamp_
-        x = 3
-        y = 2
-        z = -15
-        msg.position = np.array([np.float32(x), np.float32(y), np.float32(z)])
+        msg.x = 3.0
+        msg.y = 2.0
+        msg.z = -15.0
+        # msg.position = np.array([np.float32(x), np.float32(y), np.float32(z)]) # Old definition
         # self.get_logger().info("trajectory setpoint send")
         self.trajectory_setpoint_publisher_.publish(msg)
-
-    def get_state_from_pixhawk(self):
-        quat = self.vehicle_rpy_
-        print('quat: ' + str(quat) + ', shape: ' + str(np.shape(quat)))
-
 
     def get_body_rates_from_PX4_Control(self):
         ctrl = [
             PX4Control(drone_model=DroneModel.X500, Ts=1e-2)
         ]
-        np.set_printoptions(precision=2)
-        # print(str(self.vehicle_quat_))
-        # rpy_degs = np.asarray(self.vehicle_rpy_)*180/np.pi
-        # print(rpy_degs.astype('int'))
-        # rpy_degs_comparison = R.from_quat([self.vehicle_quat_]).as_euler('zyx', degrees=True)
-        # print(rpy_degs_comparison.astype('int'))
+        # np.set_printoptions(precision=2)
+
+        # MATCH STATE WITH gym-pybullet-drones https://github.com/utiasDSL/gym-pybullet-drones#observation-spaces-examples
+        # X, Y, Z position in WORLD_FRAME (in meters, 3 values)
+        # Quaternion orientation in WORLD_FRAME (4 values)
+        # Roll, pitch and yaw angles in WORLD_FRAME (in radians, 3 values)
+        # The velocity vector in WORLD_FRAME (in m/s, 3 values)
+        # Angular velocity in WORLD_FRAME (3 values)
+        # Motors' speeds (in RPMs, 4 values)
+
+        #TODO: rotate state_vec such that all inputs are WORLD_FRAME
+        #output sould 
+
         state_vec = np.hstack([self.vehicle_pos_, self.vehicle_quat_, self.vehicle_rpy_,
                            self.vehicle_vel_, self.vehicle_ang_v_, np.zeros(4)])
-        # print('state_vec: ' + str(state_vec) + ', shape: ' + str(np.shape(state_vec)))
-        # print('\r' + str(state_vec[0:3]), end='')
-        # print('control: ')
+        # TODO: does motors' speeds (RPMs) = np.zeros(4) matter for PX4Control?
         control = ctrl[0].computeRateAndThrustFromState(
             state=state_vec, #proper shape: (20,)
             target_pos=np.array([0,0,-2.5]), #proper shape: (3,)
@@ -205,20 +202,25 @@ class OffboardControl(Node):
     # @ brief Publish a vehicl rates setpointsource ~/px4_ros_com_ros2/install/setup.bash
     def publish_vehicle_rates_setpoint(self):
         control = self.get_body_rates_from_PX4_Control()
-        # it is evident that the thrust from control is not normalized
-        max_thrust = 2*9.81*1.2 #roughly 2:1 thrust/weight ratio
-        #self.get_state_from_pixhawk()
+        # it is evident that the thrust from PX4Control is not normalized
+        # quick and dirty way to normalize using roughly 2:1 T/W ratio
+        max_thrust = 2*9.81*1.2
         msg = VehicleRatesSetpoint()
         msg.timestamp = self.timestamp_
-        #print(self.timestamp_)
-        #works in jmavsim but not in gazebo?
-        msg.roll = -control[0][0]/180*np.pi # minus sign in jmavsim due to orientation issues
+        msg.roll = control[0][0]/180*np.pi # minus sign in jmavsim due to orientation issues
         msg.pitch = control[0][1]/180*np.pi
         msg.yaw = control[0][2]/180*np.pi
-        msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), np.float32(-control[1]/max_thrust)])
-        np.set_printoptions(precision=3)
-        print('rates: ' + str(np.array([msg.roll, msg.pitch, msg.yaw])))
-        print('thrust: ' + str(msg.thrust_body[2]))
+        # thrust output of PX4Control must be normalized and negated
+        msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1]/max_thrust)])
+
+        # Debugging variables (for plots)
+        global countie,loggie
+
+        loggie[countie,0:4] = np.array([self.vehicle_quat_])
+        loggie[countie,4:7] = np.array([msg.roll,msg.pitch,msg.yaw])
+        loggie[countie,7:10] = control[2]
+
+        countie += 1
         self.vehicle_rates_setpoint_publisher_.publish(msg)
     #  @ brief Publish vehicle commands
     #  @ param command   Command code(matches VehicleCommand and MAVLink MAV_CMD codes)
@@ -240,11 +242,44 @@ class OffboardControl(Node):
 
 
 def main(argc, argv):
+    # # Original code
+    # print("Starting offboard control node...")
+    # rclpy.init()
+    # offboard_control = OffboardControl()
+    # rclpy.spin(offboard_control)
+    # rclpy.shutdown()
+    # # Adapted code for debugging, plots after duration seconds
     print("Starting offboard control node...")
     rclpy.init()
     offboard_control = OffboardControl()
-    rclpy.spin(offboard_control)
+    start_time = time.time()
+    while (time.time() - start_time) < duration:
+        rclpy.spin_once(offboard_control, timeout_sec=0.1) 
     rclpy.shutdown()
+    fig = plt.figure()
+    ax1 = plt.subplot(1, 3, 1)
+    ax1.plot(np.transpose(loggie[:,0]),label='0')
+    ax1.plot(np.transpose(loggie[:,1]),label='1')
+    ax1.plot(np.transpose(loggie[:,2]),label='2')
+    ax1.plot(np.transpose(loggie[:,3]),label='3')
+    ax1.legend()
+    ax1.set_title('Quaternions')
+    ax2 = plt.subplot(1, 3, 2)
+    ax2.plot(np.transpose(loggie[:,4]),label='x')
+    ax2.plot(np.transpose(loggie[:,5]),label='y')
+    ax2.plot(np.transpose(loggie[:,6]),label='z')
+    ax2.legend()
+    ax2.set_title('Body Rate Setpoint')
+    ax3 = plt.subplot(1, 3, 3)
+    ax3.plot(np.transpose(loggie[:,7]),label='x')
+    ax3.plot(np.transpose(loggie[:,8]),label='y')
+    ax3.plot(np.transpose(loggie[:,9]),label='z')
+    ax3.legend()
+    ax3.set_title('Pos Error')
+    plt.show()
+    #plt.savefig('/home/nate/Desktop/attitude_br.png')
+
+    print('Goodbye, countie = '+str(countie))
 
 
 if __name__ == "__main__":

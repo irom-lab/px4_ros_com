@@ -266,9 +266,9 @@ class PX4Control(BaseControl):
         Returns
         -------
         ndarray
-            (4,1)-shaped array of integers containing the RPMs to apply to each of the 4 motors.
+            (3,1)-shaped array of integers containing the body rate setpoint.
         ndarray
-            (3,1)-shaped array of floats containing the current XYZ position error.
+            (3?,1?)-shaped array of floats containing the thrust output.
         float
             The current yaw error.
 
@@ -281,6 +281,12 @@ class PX4Control(BaseControl):
 
         # States
         self.pos = state[0:3]
+        #test
+        # q1 = state[3]
+        # q2 = state[4]
+        # q3 = state[5]
+        # q4 = state[6]
+        # self.quat = np.array([q3,q4,q1,q2]) #[q3,q4,q1,q2] works pretty well
         self.quat = np.hstack(
             (state[6], state[3:6]))  # [qx,qy,qz,qw] -> [qw,qx,qy,qz]
         self.vel = state[10:13]
@@ -321,7 +327,7 @@ class PX4Control(BaseControl):
         self.rate_sp += rate_residual
         thrust = np.linalg.norm(self.thrust_sp) + thrust_residual
 
-        return self.rate_sp, thrust
+        return self.rate_sp, thrust, self.pos_sp[0:3] - self.pos
 
     ################################################################################
 
@@ -330,7 +336,7 @@ class PX4Control(BaseControl):
         # Z Position Control
         # ---------------------------
         pos_error = self.pos_sp[0:3] - self.pos
-        #print(pos_error)
+        print('pos_error:' + str(pos_error))
         self.vel_sp[0:3] += self.pos_P_gain[0:3] * pos_error
         #print(self.vel_sp)
 
@@ -500,10 +506,6 @@ class PX4Control(BaseControl):
         # Add Yaw rate feed-forward
         self.rate_sp += quat2Dcm(quatInverse(self.quat)
                                  )[:, 2] * self.yawFF
-
-        # # Limit rate setpoint #NATE
-        # self.rate_sp = np.clip(
-        #     self.rate_sp, -self.rateMax, self.rateMax)
 
     def rate_control(self):
 

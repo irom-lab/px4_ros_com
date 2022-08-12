@@ -64,13 +64,14 @@ from px4_msgs.msg import VehicleRatesSetpoint
 # PX4Control Imports
 from PX4Control import PX4Control
 from envs.BaseAviary import DroneModel # from gym-pybullet-drones framework
+from utils.control import RotToQuat, quatMultiply, quatInverse, quat2Dcm
 
 # Imports for debugging
 import time
 import matplotlib.pyplot as plt
 # Debugging variables. ctrl+F "ie " / "ie_" to identify such variables... loggie, countie, etc...
 countie = 0
-duration = 5
+duration = 25
 countie_end = duration*10 # 10 works for a 10 Hz sampling rate
 loggie = np.zeros((countie_end,10))
 print('loggie shape: '+ str(np.shape(loggie)))
@@ -113,13 +114,13 @@ class OffboardControl(Node):
     def timesync_callback(self, msg):
         self.timestamp_ = msg.timestamp
     def vehicle_odometry_callback(self, msg):
-        # self.vehicle_pos_ = np.array([msg.positin]).reshape((3,)) # see: version of vehicle_odometry
-        self.vehicle_pos_ = np.array([msg.x,msg.y,msg.z]) #NED
-        self.vehicle_quat_ = msg.q #FRD
+        # self.vehicle_pos_ = np.array([msg.position]).reshape((3,)) # see: version of vehicle_odometry
+        self.vehicle_pos_ = np.array([msg.x,msg.y,msg.z]) #NED, meters
+        self.vehicle_quat_ = msg.q #FRD to reference (q_offset is from reference to navigation?)
         self.vehicle_rpy_ = p.getEulerFromQuaternion(self.vehicle_quat_) # Euler angles not used for control
-        self.vehicle_vel_ = np.array([msg.vx,msg.vy,msg.vz]) #NED
+        self.vehicle_vel_ = np.array([msg.vx,msg.vy,msg.vz]) #NED, m/s
         # self.vehicle_vel_ = np.array([msg.velocity]).reshape((3,)) # see: version of vehicle_odometry
-        self.vehicle_ang_v_ = np.array([msg.rollspeed,msg.pitchspeed,msg.yawspeed]) #FRD (body axes)
+        self.vehicle_ang_v_ = np.array([msg.rollspeed,msg.pitchspeed,msg.yawspeed]) #FRD (body-fixed frame) rad/s
         # self.vehicle_ang_v_ = np.array([msg.angular_velocity]).reshape((3,)) # see: version of vehicle_odometry
 
     def timer_callback(self):
@@ -129,7 +130,7 @@ class OffboardControl(Node):
                 VehicleCommand.VEHICLE_CMD_DO_SET_MODE, float(1), float(6))
             self.arm()
         # offboard_control_mode needs to be paired with trajectory_setpoint
-        self.publish_offboard_control_mode()
+        self.publish_offboard_control_mode() # comment to print outputs but not switch mode autmomatically
         # publish setpoint here: (note: must match offboard_control_mode)
         # self.publish_trajectory_setpoint()
         self.publish_vehicle_rates_setpoint() # note: NED
@@ -187,32 +188,30 @@ class OffboardControl(Node):
         # Angular velocity in WORLD_FRAME (3 values)
         # Motors' speeds (in RPMs, 4 values)
 
-        #TODO: rotate state_vec such that all inputs are WORLD_FRAME
-        #output sould 
-
+        #NOTE: vehicle_ang_v_ is in body frame but has NO EFFECT on quad
         state_vec = np.hstack([self.vehicle_pos_, self.vehicle_quat_, self.vehicle_rpy_,
                            self.vehicle_vel_, self.vehicle_ang_v_, np.zeros(4)])
-        # TODO: does motors' speeds (RPMs) = np.zeros(4) matter for PX4Control?
+        # TODO: do motors' speeds (RPMs) = np.zeros(4) matter for PX4Control?
         control = ctrl[0].computeRateAndThrustFromState(
             state=state_vec, #proper shape: (20,)
-            target_pos=np.array([0,0,-2.5]), #proper shape: (3,)
+            target_pos=np.array([0,0,-3.0]), #proper shape: (3,)
         )
         return control
 
-    # @ brief Publish a vehicl rates setpointsource ~/px4_ros_com_ros2/install/setup.bash
+    # @ brief Publish a vehicle rates setpoint
     def publish_vehicle_rates_setpoint(self):
         control = self.get_body_rates_from_PX4_Control()
         # it is evident that the thrust from PX4Control is not normalized
         # quick and dirty way to normalize using roughly 2:1 T/W ratio
-        max_thrust = 2*9.81*1.2
+        max_thrust = 2*9.81*1.2 # without 1.2 factor, drone does not have descent authority
         msg = VehicleRatesSetpoint()
         msg.timestamp = self.timestamp_
-        msg.roll = control[0][0]/180*np.pi # minus sign in jmavsim due to orientation issues
-        msg.pitch = control[0][1]/180*np.pi
-        msg.yaw = control[0][2]/180*np.pi
+        # BODY ANGULAR RATES IN NED FRAME (rad/sec)
+        msg.roll = control[0][0]
+        msg.pitch = control[0][1]
+        msg.yaw = control[0][2]
         # thrust output of PX4Control must be normalized and negated
         msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1]/max_thrust)])
-
         # Debugging variables (for plots)
         global countie,loggie
 
@@ -257,25 +256,24 @@ def main(argc, argv):
         rclpy.spin_once(offboard_control, timeout_sec=0.1) 
     rclpy.shutdown()
     fig = plt.figure()
-    ax1 = plt.subplot(1, 3, 1)
-    ax1.plot(np.transpose(loggie[:,0]),label='0')
-    ax1.plot(np.transpose(loggie[:,1]),label='1')
-    ax1.plot(np.transpose(loggie[:,2]),label='2')
-    ax1.plot(np.transpose(loggie[:,3]),label='3')
-    ax1.legend()
-    ax1.set_title('Quaternions')
-    ax2 = plt.subplot(1, 3, 2)
+    ax2 = plt.subplot(2, 1, 1)
     ax2.plot(np.transpose(loggie[:,4]),label='x')
     ax2.plot(np.transpose(loggie[:,5]),label='y')
     ax2.plot(np.transpose(loggie[:,6]),label='z')
     ax2.legend()
     ax2.set_title('Body Rate Setpoint')
-    ax3 = plt.subplot(1, 3, 3)
+    ax2.set_ylabel('rad/s')
+    ax2.set_xlabel('deciseconds')
+    ax3 = plt.subplot(2, 1, 2)
     ax3.plot(np.transpose(loggie[:,7]),label='x')
     ax3.plot(np.transpose(loggie[:,8]),label='y')
     ax3.plot(np.transpose(loggie[:,9]),label='z')
     ax3.legend()
     ax3.set_title('Pos Error')
+    ax3.set_ylabel('m')
+    ax3.set_xlabel('deciseconds')
+
+    plt.subplots_adjust(hspace=0.6)
     plt.show()
     #plt.savefig('/home/nate/Desktop/attitude_br.png')
 

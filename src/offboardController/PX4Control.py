@@ -57,12 +57,19 @@ class PX4Control(BaseControl):
             self.mB = 1.2105
             dxm = dym = 0.25
             MAX_RPM = 8000
-            # Gains used in gym_pybullet_drones
-            self.pos_P_gain = np.array([0.95, 0.95, 1.0])
-            self.vel_P_gain = np.array([1.8, 1.8, 4.0])
-            self.vel_D_gain = np.array([0.2, 0.2, 0.0])
-            self.vel_I_gain = np.array([0.4, 0.4, 2])
-            self.rate_P_gain = np.array([0.15, 0.15, 0.2])
+            # # Gains used in gym_pybullet_drones
+            # self.pos_P_gain = np.array([0.95, 0.95, 1.0])
+            # self.vel_P_gain = np.array([1.8, 1.8, 4.0])
+            # self.vel_D_gain = np.array([0.2, 0.2, 0.0])
+            # self.vel_I_gain = np.array([0.4, 0.4, 2])
+            # self.rate_P_gain = np.array([0.15, 0.15, 0.2])
+            # self.rate_D_gain = np.array([0.003, 0.003, 0.0])
+            # Gains from PX4 default parameters
+            self.pos_P_gain = np.array([2.0, 2.0, 2.0])
+            self.vel_P_gain = np.array([0.9, 0.9, 0.9])
+            self.vel_D_gain = np.array([0.01, 0.01, 0.0])
+            self.vel_I_gain = np.array([0.4, 0.4, 2.5])
+            self.rate_P_gain = np.array([0.15, 0.15, 0.4])
             self.rate_D_gain = np.array([0.003, 0.003, 0.0])
 
         elif self.DRONE_MODEL == DroneModel.CF2X:
@@ -70,20 +77,20 @@ class PX4Control(BaseControl):
             MAX_RPM = 21000
             dxm = dym = 0.0397
             self.pos_P_gain = np.array([1.0, 1.0, 1.0])
-            self.vel_P_gain = np.array([1.0, 1.0, 2.0])
+            self.vel_P_gain = np.array([1.0, 1.0, 1.0])
             self.vel_D_gain = np.array([0.1, 0.1, 0.005])
             self.vel_I_gain = np.array([0.01, 0.01, 0.01])
             self.rate_P_gain = np.array([0.0003, 0.0003, 0])
             self.rate_D_gain = np.array([0.00001, 0.000001, 0])
 
         # # Attitude P gains (used in gym_pybullet_drones)
-        # Pphi = 6.5  # 1.0
-        # Ptheta = Pphi
-        # Ppsi = 2.8  # 0.2
-        # Original
-        Pphi = 1.0
+        Pphi = 6.5 
         Ptheta = Pphi
-        Ppsi = 0.2
+        Ppsi = 2.8 
+        # # gym-pybullet-drones
+        # Pphi = 1.0
+        # Ptheta = Pphi
+        # Ppsi = 0.2
         self.att_P_gain = np.array([Pphi, Ptheta, Ppsi])
 
         self.maxThr = (4 * self.KF * MAX_RPM**2)  # 0.5953
@@ -281,30 +288,25 @@ class PX4Control(BaseControl):
 
         # States
         self.pos = state[0:3]
-        #test
-        # q1 = state[3]
-        # q2 = state[4]
-        # q3 = state[5]
-        # q4 = state[6]
-        # self.quat = np.array([q3,q4,q1,q2]) #[q3,q4,q1,q2] works pretty well
-        self.quat = np.hstack(
-            (state[6], state[3:6]))  # [qx,qy,qz,qw] -> [qw,qx,qy,qz]
+        # UNCOMMENT FOR GYM
+        # self.quat = np.hstack(
+        #     (state[6], state[3:6]))  # [qx,qy,qz,qw] -> [qw,qx,qy,qz]
+        # UNCOMMENT FOR PX4
+        self.quat = state[3:7]
         self.vel = state[10:13]
         self.ang_vel = state[13:16]  # in world frame
 
-        #self.dcm = quat2Dcm(self.quat)
-        self.dcm = R.from_quat([self.quat]).as_matrix()[0]
-        # np.set_printoptions(precision=1)
-        # print(str(self.dcm))
+        self.dcm = quat2Dcm(self.quat)
+        # Either DCM definition should work.
+        # self.dcm = R.from_quat([self.quat]).as_matrix()[0]
+        # omega only used in angular rate control
         self.omega = np.dot(
             self.dcm.transpose(),
-            self.ang_vel)  # body rate
-        # print(self.omega)
+            self.ang_vel)
         #
         self.vel_dot = (self.vel - self.prev_vel) / self.Ts
         self.omega_dot = (self.omega - self.prev_omega) / self.Ts
-        # print('vel dot: ', self.vel_dot)
-        # print('omega dot: ', self.omega_dot)
+
 
         # Desired State (Create a copy, hence the [:])
         # ---------------------------
@@ -336,9 +338,7 @@ class PX4Control(BaseControl):
         # Z Position Control
         # ---------------------------
         pos_error = self.pos_sp[0:3] - self.pos
-        print('pos_error:' + str(pos_error))
         self.vel_sp[0:3] += self.pos_P_gain[0:3] * pos_error
-        #print(self.vel_sp)
 
     def saturateVel(self):
 
@@ -346,13 +346,11 @@ class PX4Control(BaseControl):
         # ---------------------------
         # Either saturate each velocity axis separately, or total velocity (prefered)
         if (self.saturateVel_separetely):
-            print('saturateVel_separetely')
             self.vel_sp = np.clip(
                 self.vel_sp, -self.velMax, self.velMax)
         else:
             totalVel_sp = np.linalg.norm(self.vel_sp)
             if (totalVel_sp > self.velMaxAll):
-                print('vel_max')
                 self.vel_sp = self.vel_sp / totalVel_sp * self.velMaxAll
 
     def z_vel_control(self):

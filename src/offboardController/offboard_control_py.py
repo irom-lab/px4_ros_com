@@ -52,6 +52,7 @@ from px4_msgs.msg import VehicleCommand
 from px4_msgs.msg import VehicleControlMode
 import sys
 
+import numpy as np
 
 class OffboardControl(Node):
     def __init__(self):
@@ -114,10 +115,16 @@ class OffboardControl(Node):
     # @ brief Publish a trajectory setpoint For this example, it sends a trajectory setpoint to make the vehicle hover at 5 meters with a yaw angle of 180 degrees.
     def publish_trajectory_setpoint(self):
         msg = TrajectorySetpoint()
+        # TODO: change message definition
+        
         msg.timestamp = self.timestamp_
-        msg.x = 0.0
-        msg.y = 0.0
-        msg.z = -5.0
+        # msg.x = 0.0
+        # msg.y = 0.0
+        # msg.z = -5.0
+        x = 0.0
+        y = 0.0
+        z = -2.5
+        msg.position = np.array([np.float32(x), np.float32(y), np.float32(z)]) # Old definition
         msg.yaw = -3.14  # [-PI:PI]
         # self.get_logger().info("trajectory setpoint send")
         self.trajectory_setpoint_publisher_.publish(msg)

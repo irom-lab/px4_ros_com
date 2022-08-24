@@ -118,14 +118,10 @@ class OffboardControl(Node):
         # TODO: change message definition
         
         msg.timestamp = self.timestamp_
-        # msg.x = 0.0
-        # msg.y = 0.0
-        # msg.z = -5.0
-        x = 0.0
-        y = 0.0
-        z = -2.5
-        msg.position = np.array([np.float32(x), np.float32(y), np.float32(z)]) # Old definition
-        msg.yaw = -3.14  # [-PI:PI]
+        msg.x = 0.0
+        msg.y = 10.0
+        msg.z = -5.0
+        msg.yaw = 3.14  # [-PI:PI]
         # self.get_logger().info("trajectory setpoint send")
         self.trajectory_setpoint_publisher_.publish(msg)
 

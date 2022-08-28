@@ -69,19 +69,19 @@ class PX4Control(BaseControl):
             dxm = dym = 0.25
             MAX_RPM = 8000
             # # Gains used in gym_pybullet_drones
-            # self.pos_P_gain = np.array([0.95, 0.95, 1.0])
-            # self.vel_P_gain = np.array([1.8, 1.8, 4.0])
+            self.pos_P_gain = np.array([0.95, 0.95, 1.0])
+            self.vel_P_gain = np.array([1.8, 1.8, 4.0])
             # self.vel_D_gain = np.array([0.2, 0.2, 0.0])
-            # self.vel_I_gain = np.array([0.4, 0.4, 2])
-            # self.rate_P_gain = np.array([0.15, 0.15, 0.2])
-            # self.rate_D_gain = np.array([0.003, 0.003, 0.0])
-            # Gains from PX4 default parameters
-            self.pos_P_gain = np.array([2.0, 2.0, 2.0])
-            self.vel_P_gain = np.array([0.9, 0.9, 0.9])
-            self.vel_D_gain = np.array([0.01, 0.01, 0.0])
-            self.vel_I_gain = np.array([0.4, 0.4, 2.5])
-            self.rate_P_gain = np.array([0.15, 0.15, 0.4])
+            self.vel_I_gain = np.array([0.4, 0.4, 2.0])
+            self.rate_P_gain = np.array([0.15, 0.15, 0.2])
             self.rate_D_gain = np.array([0.003, 0.003, 0.0])
+            # # Gains from PX4 default parameters
+            # self.pos_P_gain = np.array([2.0, 2.0, 2.0])
+            # self.vel_P_gain = np.array([0.9, 0.9, 0.9])
+            self.vel_D_gain = np.array([0.01, 0.01, 0.0])
+            # self.vel_I_gain = np.array([0.4, 0.4, 2.5])
+            # self.rate_P_gain = np.array([0.15, 0.15, 0.4])
+            # self.rate_D_gain = np.array([0.003, 0.003, 0.0])
 
         elif self.DRONE_MODEL == DroneModel.CF2X:
             self.mB = 0.0397
@@ -340,7 +340,7 @@ class PX4Control(BaseControl):
         self.rate_sp += rate_residual
         thrust = np.linalg.norm(self.thrust_sp) + thrust_residual
 
-        return self.rate_sp, thrust, self.pos_sp[0:3] - self.pos
+        return self.rate_sp, thrust/self.maxThr, self.pos_sp[0:3] - self.pos
 
     ################################################################################
 
@@ -373,6 +373,7 @@ class PX4Control(BaseControl):
         vel_z_error = self.vel_sp[2] - self.vel[2]
         if (self.orient == "NED"):
             # print('NED') #FALSE
+            print('self.thr_int[2]: ' + str(self.thr_int[2]) + ', shape: ' + str(np.shape(self.thr_int[2])))
             thrust_z_sp = self.vel_P_gain[2] * vel_z_error - self.vel_D_gain[
                 2] * self.vel_dot[2] + self.mB * (self.acc_sp[2] -
                                                   self.g) + self.thr_int[2]
@@ -402,8 +403,11 @@ class PX4Control(BaseControl):
 
         # Calculate integral part
         if not (stop_int_D):
-            self.thr_int[2] += self.vel_I_gain[
-                2] * vel_z_error * self.Ts * self.useIntergral
+            self.thr_int[2] += self.vel_I_gain[2] * vel_z_error * self.Ts * self.useIntergral
+            print('vel_z_error: ' + str(vel_z_error) + ', shape: ' + str(np.shape(vel_z_error)))
+            print('self.thr_int[2]: ' + str(self.thr_int[2]) + ', shape: ' + str(np.shape(self.thr_int[2])))
+            print('int_add: ' + str(self.vel_I_gain[2] * vel_z_error * self.Ts * self.useIntergral))
+            print('self.maxThr: ' + str(self.maxThr) + ', shape: ' + str(np.shape(self.maxThr)))
             # Limit thrust integral
             self.thr_int[2] = min(
                 abs(self.thr_int[2]), self.maxThr) * np.sign(self.thr_int[2])

@@ -71,8 +71,12 @@ import matplotlib.pyplot as plt
 countie = 0
 duration = 25
 countie_end = duration*10 # 10 works for a 10 Hz sampling rate
-loggie = np.zeros((countie_end,10))
+loggie = np.zeros((countie_end,11))
 print('loggie shape: '+ str(np.shape(loggie)))
+
+ctrl = [
+    PX4Control(drone_model=DroneModel.X500, Ts=1e-2)
+]
 
 class OffboardControl(Node):
     def __init__(self):
@@ -82,14 +86,11 @@ class OffboardControl(Node):
         self.timestamp_ = 0  # in python because of GIL,  the basic operations are already atomic
 
         # TODO: better way to create placeholder values - are these necessary?
-        self.vehicle_pos_ = 0
-        self.vehicle_quat_ = 0
-        self.vehicle_rpy_ = 0
-        self.vehicle_vel_ = 0
-        self.vehicle_ang_v_ = 0
-        self.vehicle_attitude_ = 0
-        self.vehicle_local_position_ = 0
-        self.vehicle_global_position_ = 0
+        self.vehicle_pos_ = np.array([0.0, 0.0, 0.0])
+        self.vehicle_quat_ = np.array([1.0, 0.0, 0.0, 0.0])
+        self.vehicle_rpy_ = np.array([0.0, 0.0, 0.0])
+        self.vehicle_vel_ = np.array([0.0, 0.0, 0.0])
+        self.vehicle_ang_v_ = np.array([0.0, 0.0, 0.0])
 
         self.offboard_control_mode_publisher_ = self.create_publisher(
             OffboardControlMode, "fmu/offboard_control_mode/in", 10)
@@ -178,9 +179,9 @@ class OffboardControl(Node):
         self.trajectory_setpoint_publisher_.publish(msg)
 
     def get_body_rates_from_PX4_Control(self):
-        ctrl = [
-            PX4Control(drone_model=DroneModel.X500, Ts=1e-2)
-        ]
+        # ctrl = [
+        #     PX4Control(drone_model=DroneModel.X500, Ts=1e-2)
+        # ]
         # np.set_printoptions(precision=2)
 
         # MATCH STATE WITH gym-pybullet-drones https://github.com/utiasDSL/gym-pybullet-drones#observation-spaces-examples
@@ -197,7 +198,7 @@ class OffboardControl(Node):
         # TODO: do motors' speeds (RPMs) = np.zeros(4) matter for PX4Control?
         control = ctrl[0].computeRateAndThrustFromState(
             state=state_vec, #proper shape: (20,)
-            target_pos=np.array([0,0,-3.0]), #proper shape: (3,)
+            target_pos=np.array([0,0,-10]), #proper shape: (3,)
         )
         return control
 
@@ -213,14 +214,18 @@ class OffboardControl(Node):
         msg.roll = control[0][0]
         msg.pitch = control[0][1]
         msg.yaw = control[0][2]
+        print('thrust output: ' + str(control[1]))
+        msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1])])
         # thrust output of PX4Control must be normalized and negated
-        msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1]/max_thrust)])
+        #msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1]/max_thrust)])
         # Debugging variables (for plots)
         global countie,loggie
 
         loggie[countie,0:4] = np.array([self.vehicle_quat_])
         loggie[countie,4:7] = np.array([msg.roll,msg.pitch,msg.yaw])
-        loggie[countie,7:10] = control[2]
+        loggie[countie,7:10] = control[2] # pos error
+        loggie[countie,10] = control[1] # thrust_sp
+
 
         countie += 1
         self.vehicle_rates_setpoint_publisher_.publish(msg)
@@ -259,13 +264,18 @@ def main(argc, argv):
         rclpy.spin_once(offboard_control, timeout_sec=0.1) 
     rclpy.shutdown()
     fig = plt.figure()
+    # ax2 = plt.subplot(2, 1, 1)
+    # ax2.plot(np.transpose(loggie[:,4]),label='x')
+    # ax2.plot(np.transpose(loggie[:,5]),label='y')
+    # ax2.plot(np.transpose(loggie[:,6]),label='z')
+    # ax2.legend()
+    # ax2.set_title('Body Rate Setpoint')
+    # ax2.set_ylabel('rad/s')
+    # ax2.set_xlabel('deciseconds')
     ax2 = plt.subplot(2, 1, 1)
-    ax2.plot(np.transpose(loggie[:,4]),label='x')
-    ax2.plot(np.transpose(loggie[:,5]),label='y')
-    ax2.plot(np.transpose(loggie[:,6]),label='z')
-    ax2.legend()
-    ax2.set_title('Body Rate Setpoint')
-    ax2.set_ylabel('rad/s')
+    ax2.plot(np.transpose(loggie[:,10]))
+    ax2.set_title('Thrust Setpoint: gazebo')
+    ax2.set_ylabel('normalized thrust')
     ax2.set_xlabel('deciseconds')
     ax3 = plt.subplot(2, 1, 2)
     ax3.plot(np.transpose(loggie[:,7]),label='x')

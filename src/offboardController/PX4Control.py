@@ -1,9 +1,9 @@
 import math
 import numpy as np
 from scipy.optimize import nnls
+from enum import Enum
 
 from control.BaseControl import BaseControl
-from envs.BaseAviary import DroneModel
 from utils.control import RotToQuat, quatMultiply, quatInverse, quat2Dcm
 
 #Added
@@ -18,6 +18,17 @@ rpm2radps = np.pi / 30
 # Normalize quaternion, or any vector
 def vectNormalize(q):
     return q / np.linalg.norm(q)
+
+
+class DroneModel(Enum):
+    """Drone models enumeration class."""
+
+    X500 = "x500"  #
+    CF2X = "cf2x"  # Bitcraze Craziflie 2.0 in the X configuration
+    CF2P = "cf2p"  # Bitcraze Craziflie 2.0 in the + configuration
+    # Generic quadrotor (with AscTec Hummingbird inertial properties)
+    HB = "hb"
+
 
 
 class PX4Control(BaseControl):

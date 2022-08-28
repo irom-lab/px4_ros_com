@@ -47,7 +47,6 @@ from rclpy.node import Node
 import sys
 # Math Imports
 import numpy as np
-import pybullet as p
 from scipy.spatial.transform import Rotation as R
 
 # PX4 Imported Messages - Offboard Mode
@@ -62,8 +61,7 @@ from px4_msgs.msg import VehicleOdometry
 from px4_msgs.msg import VehicleRatesSetpoint
 
 # PX4Control Imports
-from PX4Control import PX4Control
-from envs.BaseAviary import DroneModel # from gym-pybullet-drones framework
+from PX4Control import PX4Control, DroneModel
 from utils.control import RotToQuat, quatMultiply, quatInverse, quat2Dcm
 
 # Imports for debugging
@@ -117,7 +115,12 @@ class OffboardControl(Node):
         # self.vehicle_pos_ = np.array([msg.position]).reshape((3,)) # see: version of vehicle_odometry
         self.vehicle_pos_ = np.array([msg.x,msg.y,msg.z]) #NED, meters
         self.vehicle_quat_ = msg.q #FRD to reference (q_offset is from reference to navigation?)
-        self.vehicle_rpy_ = p.getEulerFromQuaternion(self.vehicle_quat_) # Euler angles not used for control
+
+        # TODO! Test
+        # self.vehicle_rpy_ = p.getEulerFromQuaternion(self.vehicle_quat_) # Euler angles not used for control
+        rot = R.from_quat(self.vehicle_quat_)   # pybullet uses [x,y,z,w] for qusternion, scipy uses the same convention
+        self.vehicle_rpy_  = rot.as_euler('xyz', degrees=False)
+
         self.vehicle_vel_ = np.array([msg.vx,msg.vy,msg.vz]) #NED, m/s
         # self.vehicle_vel_ = np.array([msg.velocity]).reshape((3,)) # see: version of vehicle_odometry
         self.vehicle_ang_v_ = np.array([msg.rollspeed,msg.pitchspeed,msg.yawspeed]) #FRD (body-fixed frame) rad/s

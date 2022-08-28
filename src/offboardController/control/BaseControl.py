@@ -1,12 +1,18 @@
 import os
-import math
 import numpy as np
-import pybullet as p
 from enum import Enum
 import xml.etree.ElementTree as etxml
 from scipy.spatial.transform import Rotation
 
-from envs.BaseAviary import DroneModel, BaseAviary
+
+class DroneModel(Enum):
+    """Drone models enumeration class."""
+
+    X500 = "x500"  #
+    CF2X = "cf2x"  # Bitcraze Craziflie 2.0 in the X configuration
+    CF2P = "cf2p"  # Bitcraze Craziflie 2.0 in the + configuration
+    # Generic quadrotor (with AscTec Hummingbird inertial properties)
+    HB = "hb"
 
 
 class BaseControl(object):

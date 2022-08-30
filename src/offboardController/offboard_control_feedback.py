@@ -179,10 +179,6 @@ class OffboardControl(Node):
         self.trajectory_setpoint_publisher_.publish(msg)
 
     def get_body_rates_from_PX4_Control(self):
-        # ctrl = [
-        #     PX4Control(drone_model=DroneModel.X500, Ts=1e-2)
-        # ]
-        # np.set_printoptions(precision=2)
 
         # MATCH STATE WITH gym-pybullet-drones https://github.com/utiasDSL/gym-pybullet-drones#observation-spaces-examples
         # X, Y, Z position in WORLD_FRAME (in meters, 3 values)
@@ -198,23 +194,20 @@ class OffboardControl(Node):
         # TODO: do motors' speeds (RPMs) = np.zeros(4) matter for PX4Control?
         control = ctrl[0].computeRateAndThrustFromState(
             state=state_vec, #proper shape: (20,)
-            target_pos=np.array([0,0,-10]), #proper shape: (3,)
+            target_pos=np.array([0,2,-2.5]), #proper shape: (3,)
         )
         return control
 
     # @ brief Publish a vehicle rates setpoint
     def publish_vehicle_rates_setpoint(self):
         control = self.get_body_rates_from_PX4_Control()
-        # it is evident that the thrust from PX4Control is not normalized
-        # quick and dirty way to normalize using roughly 2:1 T/W ratio
-        max_thrust = 2*9.81*1.2 # without 1.2 factor, drone does not have descent authority
         msg = VehicleRatesSetpoint()
         msg.timestamp = self.timestamp_
         # BODY ANGULAR RATES IN NED FRAME (rad/sec)
         msg.roll = control[0][0]
         msg.pitch = control[0][1]
         msg.yaw = control[0][2]
-        print('thrust output: ' + str(control[1]))
+        # print('thrust output: ' + str(control[1]))
         msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1])])
         # thrust output of PX4Control must be normalized and negated
         #msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1]/max_thrust)])

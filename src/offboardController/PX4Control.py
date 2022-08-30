@@ -373,7 +373,7 @@ class PX4Control(BaseControl):
         vel_z_error = self.vel_sp[2] - self.vel[2]
         if (self.orient == "NED"):
             # print('NED') #FALSE
-            print('self.thr_int[2]: ' + str(self.thr_int[2]) + ', shape: ' + str(np.shape(self.thr_int[2])))
+            # print('self.thr_int[2]: ' + str(self.thr_int[2]) + ', shape: ' + str(np.shape(self.thr_int[2])))
             thrust_z_sp = self.vel_P_gain[2] * vel_z_error - self.vel_D_gain[
                 2] * self.vel_dot[2] + self.mB * (self.acc_sp[2] -
                                                   self.g) + self.thr_int[2]
@@ -404,10 +404,10 @@ class PX4Control(BaseControl):
         # Calculate integral part
         if not (stop_int_D):
             self.thr_int[2] += self.vel_I_gain[2] * vel_z_error * self.Ts * self.useIntergral
-            print('vel_z_error: ' + str(vel_z_error) + ', shape: ' + str(np.shape(vel_z_error)))
-            print('self.thr_int[2]: ' + str(self.thr_int[2]) + ', shape: ' + str(np.shape(self.thr_int[2])))
-            print('int_add: ' + str(self.vel_I_gain[2] * vel_z_error * self.Ts * self.useIntergral))
-            print('self.maxThr: ' + str(self.maxThr) + ', shape: ' + str(np.shape(self.maxThr)))
+            # print('vel_z_error: ' + str(vel_z_error) + ', shape: ' + str(np.shape(vel_z_error)))
+            # print('self.thr_int[2]: ' + str(self.thr_int[2]) + ', shape: ' + str(np.shape(self.thr_int[2])))
+            # print('int_add: ' + str(self.vel_I_gain[2] * vel_z_error * self.Ts * self.useIntergral))
+            # print('self.maxThr: ' + str(self.maxThr) + ', shape: ' + str(np.shape(self.maxThr)))
             # Limit thrust integral
             self.thr_int[2] = min(
                 abs(self.thr_int[2]), self.maxThr) * np.sign(self.thr_int[2])

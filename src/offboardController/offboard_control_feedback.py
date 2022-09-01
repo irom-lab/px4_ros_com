@@ -194,7 +194,7 @@ class OffboardControl(Node):
         # TODO: do motors' speeds (RPMs) = np.zeros(4) matter for PX4Control?
         control = ctrl[0].computeRateAndThrustFromState(
             state=state_vec, #proper shape: (20,)
-            target_pos=np.array([0,2,-2.5]), #proper shape: (3,)
+            target_pos=np.array([2,0,-2.0]), #proper shape: (3,)
         )
         return control
 
@@ -207,6 +207,7 @@ class OffboardControl(Node):
         msg.roll = control[0][0]
         msg.pitch = control[0][1]
         msg.yaw = control[0][2]
+        print("body rate sp: ", msg.roll, msg.pitch, msg.yaw)
         # print('thrust output: ' + str(control[1]))
         msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1])])
         # thrust output of PX4Control must be normalized and negated

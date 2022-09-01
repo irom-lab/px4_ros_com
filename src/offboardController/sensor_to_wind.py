@@ -3,9 +3,9 @@ from torch import nn
 import time
 
 #############################################################################
-# Neural network model
+# Neural network speed estimation model
 
-class NeuralNetwork(nn.Module):
+class NeuralNetworkSpeed(nn.Module):
     '''
     A general/generic Neural Network model class for use with Pytorch. 
     
@@ -13,7 +13,7 @@ class NeuralNetwork(nn.Module):
           --- this will allow for custom classes rather than the clunky "if" statement used here. 
     '''
     def __init__(self, crosswire=False, fullAngles=False, geom=6):
-        super(NeuralNetwork, self).__init__()
+        super(NeuralNetworkSpeed, self).__init__()
         self.flatten = nn.Flatten()
         
         if crosswire:
@@ -46,12 +46,19 @@ class NeuralNetwork(nn.Module):
                 # if the data is NOT dense (e.g., is in 10-degree increments)
                 # Input size is 6  --- six sensor readings (voltages)
                 # Output size is 1 --- either speed (m/s) or angle (rad)
+                '''
                 self.linear_relu_stack = nn.Sequential(
-                    nn.Linear(geom, 50),
+                    nn.Linear(geom, 6),
                     nn.ReLU(),
-                    nn.Linear(50, 25),
+                    nn.Linear(6, 3),
                     nn.ReLU(),
-                    nn.Linear(25, 1),
+                    nn.Linear(3, 1),
+                )
+                '''
+                self.linear_relu_stack = nn.Sequential(
+                    nn.Linear(3, 6),
+                    nn.ReLU(),
+                    nn.Linear(6, 1),
                 )
 
     def forward(self, x):
@@ -69,14 +76,17 @@ class NeuralNetwork(nn.Module):
 
 
 #############################################################################
-# Initialize model
-model = NeuralNetwork()
+model_speed = NeuralNetworkSpeed(crosswire=False, fullAngles=False, geom=5)
+opt = torch.optim.Adam(model_speed.parameters(), lr=0.001)
+model_speed_path = "/home/ubuntu/companion-computer-clipboard/SavedModels/Velocity/N1_G5_Loocv5_best.tar"
+checkpoint = torch.load(model_speed_path)
 
-# Model path
-model_path = "models/model_test"
+model_speed.load_state_dict(checkpoint['model_state_dict'])
+opt.load_state_dict(checkpoint['optimizer_state_dict'])
+epoch = checkpoint['epoch']
+loss = checkpoint['loss']
 
-# Load pre-trained model weights
-model.load_state_dict(torch.load(model_path)) 
+print(model_speed.eval())
 
 
 #############################################################################
@@ -85,10 +95,10 @@ model.load_state_dict(torch.load(model_path))
 
 #############################################################################
 # Run model on test random input
-input = torch.rand((1,6))
+input = torch.zeros((1,3))
 
 t_start = time.time()
-output = model.forward(input)
+output = model_speed.forward(input)
 t_end = time.time()
 
 print("Model input: ", input)

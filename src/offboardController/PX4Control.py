@@ -166,108 +166,108 @@ class PX4Control(BaseControl):
 
     ################################################################################
 
-    def computeControlFromState(self,
-                                state,
-                                target_pos,
-                                rate_residual=np.zeros((3)),
-                                thrust_residual=0):
-        """Computes the PID control action (as RPMs) for a single drone.
+    # def computeControlFromState(self,
+    #                             state,
+    #                             target_pos,
+    #                             rate_residual=np.zeros((3)),
+    #                             thrust_residual=0):
+    #     """Computes the PID control action (as RPMs) for a single drone.
 
-        Parameters
-        ----------
-        control_timestep : float
-            The time step at which control is computed.
+    #     Parameters
+    #     ----------
+    #     control_timestep : float
+    #         The time step at which control is computed.
 
-        Returns
-        -------
-        ndarray
-            (4,1)-shaped array of integers containing the RPMs to apply to each of the 4 motors.
-        ndarray
-            (3,1)-shaped array of floats containing the current XYZ position error.
-        float
-            The current yaw error.
+    #     Returns
+    #     -------
+    #     ndarray
+    #         (4,1)-shaped array of integers containing the RPMs to apply to each of the 4 motors.
+    #     ndarray
+    #         (3,1)-shaped array of floats containing the current XYZ position error.
+    #     float
+    #         The current yaw error.
 
-        """
-        self.control_counter += 1
+    #     """
+    #     self.control_counter += 1
 
-        # Get prev
-        self.prev_vel = self.vel
-        self.prev_omega = self.omega
+    #     # Get prev
+    #     self.prev_vel = self.vel
+    #     self.prev_omega = self.omega
 
-        # States
-        self.pos = state[0:3]
-        self.quat = np.hstack(
-            (state[6], state[3:6]))  # [qx,qy,qz,qw] -> [qw,qx,qy,qz]
-        self.vel = state[10:13]
-        self.ang_vel = state[13:16]  # in world frame
+    #     # States
+    #     self.pos = state[0:3]
+    #     self.quat = np.hstack(
+    #         (state[6], state[3:6]))  # [qx,qy,qz,qw] -> [qw,qx,qy,qz]
+    #     self.vel = state[10:13]
+    #     self.ang_vel = state[13:16]  # in world frame
 
-        self.dcm = quat2Dcm(self.quat)
-        self.omega = np.dot(
-            self.dcm.transpose(),
-            self.ang_vel)  # body rate
-        # print(self.omega)
-        #
-        self.vel_dot = (self.vel - self.prev_vel) / self.Ts
-        self.omega_dot = (self.omega - self.prev_omega) / self.Ts
-        # print('vel dot: ', self.vel_dot)
-        # print('omega dot: ', self.omega_dot)
+    #     self.dcm = quat2Dcm(self.quat)
+    #     self.omega = np.dot(
+    #         self.dcm.transpose(),
+    #         self.ang_vel)  # body rate
+    #     # print(self.omega)
+    #     #
+    #     self.vel_dot = (self.vel - self.prev_vel) / self.Ts
+    #     self.omega_dot = (self.omega - self.prev_omega) / self.Ts
+    #     # print('vel dot: ', self.vel_dot)
+    #     # print('omega dot: ', self.omega_dot)
 
-        # Desired State (Create a copy, hence the [:])
-        # ---------------------------
-        self.pos_sp = target_pos
-        self.vel_sp = np.zeros((3))
-        self.acc_sp = np.zeros((3))
-        self.thrust_sp = np.zeros((3))
-        self.eul_sp = np.zeros((3))
-        self.pqr_sp = 0
-        self.yawFF = 0
+    #     # Desired State (Create a copy, hence the [:])
+    #     # ---------------------------
+    #     self.pos_sp = target_pos
+    #     self.vel_sp = np.zeros((3))
+    #     self.acc_sp = np.zeros((3))
+    #     self.thrust_sp = np.zeros((3))
+    #     self.eul_sp = np.zeros((3))
+    #     self.pqr_sp = 0
+    #     self.yawFF = 0
 
-        # Cascaded control
-        self.pos_control()
-        self.saturateVel()
-        self.z_vel_control()
-        self.xy_vel_control()
-        self.thrustToAttitude()
-        self.attitude_control()
+    #     # Cascaded control
+    #     self.pos_control()
+    #     self.saturateVel()
+    #     self.z_vel_control()
+    #     self.xy_vel_control()
+    #     self.thrustToAttitude()
+    #     self.attitude_control()
 
-        # Rate controller
-        self.rate_sp += rate_residual
-        self.rate_control()
+    #     # Rate controller
+    #     self.rate_sp += rate_residual
+    #     self.rate_control()
 
-        # Get thrust
-        thrust = np.linalg.norm(self.thrust_sp) + thrust_residual
+    #     # Get thrust
+    #     thrust = np.linalg.norm(self.thrust_sp) + thrust_residual
 
-        # Mixing
-        t = np.array(
-            [thrust, self.rateCtrl[0],
-             self.rateCtrl[1],
-             self.rateCtrl[2]])
-        # w_cmd = np.sqrt(
-        #     np.clip(np.dot(self.mixerFMinv, t), self.minWmotor**2,
-        #             self.maxWmotor**2))
-        w_cmd = np.dot(self.mixerFMinv, t)
-        if np.min(w_cmd) < 0:
-            sol, res = nnls(self.mixerFM, t, maxiter=10)
-            w_cmd = sol
-        w_cmd = np.clip(w_cmd, self.minWmotor**2, self.maxWmotor**2)
-        w_cmd = np.sqrt(w_cmd)
+    #     # Mixing
+    #     t = np.array(
+    #         [thrust, self.rateCtrl[0],
+    #          self.rateCtrl[1],
+    #          self.rateCtrl[2]])
+    #     # w_cmd = np.sqrt(
+    #     #     np.clip(np.dot(self.mixerFMinv, t), self.minWmotor**2,
+    #     #             self.maxWmotor**2))
+    #     w_cmd = np.dot(self.mixerFMinv, t)
+    #     if np.min(w_cmd) < 0:
+    #         sol, res = nnls(self.mixerFM, t, maxiter=10)
+    #         w_cmd = sol
+    #     w_cmd = np.clip(w_cmd, self.minWmotor**2, self.maxWmotor**2)
+    #     w_cmd = np.sqrt(w_cmd)
 
-        # print('')
-        # print('Pos: ', self.pos)
-        # print('Rate sp:', self.rate_sp)
-        # print('Thrust sp:', self.thrust_sp)
-        # print('Input: ', t)
-        # # print('Nominal: ', np.sqrt(np.dot(self.mixerFMinv, t)))
-        # print('Output: ', w_cmd)
-        # while 1:
-        #     continue
-        # print('')
-        # import time
-        # time.sleep(0.2)
-        # return w_cmd * radps2rpm, None, None
-        return w_cmd, None, None
+    #     # print('')
+    #     # print('Pos: ', self.pos)
+    #     # print('Rate sp:', self.rate_sp)
+    #     # print('Thrust sp:', self.thrust_sp)
+    #     # print('Input: ', t)
+    #     # # print('Nominal: ', np.sqrt(np.dot(self.mixerFMinv, t)))
+    #     # print('Output: ', w_cmd)
+    #     # while 1:
+    #     #     continue
+    #     # print('')
+    #     # import time
+    #     # time.sleep(0.2)
+    #     # return w_cmd * radps2rpm, None, None
+    #     return w_cmd, None, None
 
-    ################################################################################
+    # ################################################################################
 
     def computeRateAndThrustFromState(self,
                                       state,
@@ -327,6 +327,7 @@ class PX4Control(BaseControl):
         self.acc_sp = np.zeros((3))
         self.thrust_sp = np.zeros((3))
         self.eul_sp = np.zeros((3))
+        self.eul_sp[2] = np.pi
         self.pqr_sp = 0
         self.yawFF = 0
 

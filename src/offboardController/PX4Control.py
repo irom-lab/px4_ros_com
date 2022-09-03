@@ -68,20 +68,29 @@ class PX4Control(BaseControl):
             self.mB = 1.2105
             dxm = dym = 0.25
             MAX_RPM = 8000
-            # # Gains used in gym_pybullet_drones
+            # # # Gains used in gym_pybullet_drones #TODO: verify same as hardware? vel_d?
+            # self.pos_P_gain = np.array([0.95, 0.95, 1.0])
+            # self.vel_P_gain = np.array([1.8, 1.8, 4.0])
+            # # self.vel_D_gain = np.array([0.2, 0.2, 0.0])
+            # self.vel_I_gain = np.array([0.4, 0.4, 2.0])
+            # self.rate_P_gain = np.array([0.15, 0.15, 0.2])
+            # self.rate_D_gain = np.array([0.003, 0.003, 0.0])
+
+            # # Gains used in offboard mode hardware tests #TODO: verify
             self.pos_P_gain = np.array([0.95, 0.95, 1.0])
             self.vel_P_gain = np.array([1.8, 1.8, 4.0])
-            # self.vel_D_gain = np.array([0.2, 0.2, 0.0])
+            self.vel_D_gain = np.array([0.01, 0.01, 0.0]) # PREVIOUSLY TESTED
             self.vel_I_gain = np.array([0.4, 0.4, 2.0])
             self.rate_P_gain = np.array([0.15, 0.15, 0.2])
             self.rate_D_gain = np.array([0.003, 0.003, 0.0])
-            # # Gains from PX4 default parameters
-            # self.pos_P_gain = np.array([2.0, 2.0, 2.0])
-            # self.vel_P_gain = np.array([0.9, 0.9, 0.9])
-            self.vel_D_gain = np.array([0.01, 0.01, 0.0])
-            # self.vel_I_gain = np.array([0.4, 0.4, 2.5])
-            # self.rate_P_gain = np.array([0.15, 0.15, 0.4])
-            # self.rate_D_gain = np.array([0.003, 0.003, 0.0])
+
+            # # Gains used by PX4 Autopilot
+            self.pos_P_gain = np.array([0.95, 0.95, 1.0])
+            self.vel_P_gain = np.array([1.8, 1.8, 4.0])
+            self.vel_D_gain = np.array([0.2, 0.2, 0.0]) # untested
+            self.vel_I_gain = np.array([0.4, 0.4, 2.0])
+            self.rate_P_gain = np.array([0.15, 0.15, 0.2])
+            self.rate_D_gain = np.array([0.004, 0.004, 0.0]) # untested
 
         elif self.DRONE_MODEL == DroneModel.CF2X:
             self.mB = 0.0397
@@ -327,7 +336,7 @@ class PX4Control(BaseControl):
         self.acc_sp = np.zeros((3))
         self.thrust_sp = np.zeros((3))
         self.eul_sp = np.zeros((3))
-        self.eul_sp[2] = np.pi
+        #self.eul_sp[2] = 0 # setting yaw setpoint to nonzero can cause dramatic overcorrections
         self.pqr_sp = 0
         self.yawFF = 0
 
@@ -507,6 +516,7 @@ class PX4Control(BaseControl):
 
         # Resulting error quaternion
         self.qe = quatMultiply(quatInverse(self.quat), self.qd)
+        #print(quat2Dcm(self.quat))
 
         # Create rate setpoint from quaternion error
         self.rate_sp = (2.0 * np.sign(self.qe[0]) *

@@ -68,7 +68,7 @@ class OffboardControl(Node):
             VehicleCommand, "fmu/vehicle_command/in", 10)
         self.timesync_sub_ = self.create_subscription(
             Timesync, "fmu/timesync/out", self.timesync_callback, 10)
-        timer_period = 0.1  # seconds
+        timer_period = 0.025  # seconds
         self.timer_ = self.create_timer(
             timer_period, self.timer_callback)
 
@@ -111,17 +111,47 @@ class OffboardControl(Node):
         msg.body_rate = False
         # self.get_logger().info("offboard control mode publisher send")
         self.offboard_control_mode_publisher_.publish(msg)
-
+  
     # @ brief Publish a trajectory setpoint For this example, it sends a trajectory setpoint to make the vehicle hover at 5 meters with a yaw angle of 180 degrees.
     def publish_trajectory_setpoint(self):
         msg = TrajectorySetpoint()
-        # TODO: change message definition
-        
+        # NOTE: the PX4 body frame is NED. The PX4 uses the compass to find NORTH and places the POSITIVE X direction in that direction.
+        # that is, aligning the drone in the typical fashion (front pointed along the longer, longitudinal axis of the room) is about a 114-140 degree offset.
+
+        # To compensate, rotate from "FORRESTAL ROOM" convention to "NED" convention
+        # Tested 220902 7:51 pm - works marvelously
+
+
+        yaw_offset = 2.08 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
+
+        # setpoints in the Forrestal Frame
+        x_fr = 0.0         # [m]
+        y_fr = 0.0         # [m]
+        z_fr = -1.0        # [m]
+        yaw_fr = 0         # [rad] desired yaw in forrestal frame
+
+        pos_fr = np.array([[x_fr],[y_fr], [z_fr]])
+        #rotation matrix (about Z axis)
+        Rz = np.array([[np.cos(yaw_offset), -np.sin(yaw_offset), 0],
+                    [np.sin(yaw_offset),  np.cos(yaw_offset), 0],
+                    [0,               0,              1]])
+
+        # rotate setpoints to NED 
+        x_NED,y_NED,z_NED = np.matmul(Rz,pos_fr)
+        yaw_NED = yaw_fr + yaw_offset # not currently used
+
         msg.timestamp = self.timestamp_
-        msg.x = 0.0
-        msg.y = 10.0
-        msg.z = -5.0
-        msg.yaw = 3.14  # [-PI:PI]
+
+        # TODO: test!
+        msg.x = float(x_NED)
+        msg.y = float(y_NED)
+        msg.z = float(z_NED) # same as FR NED
+        msg.yaw = float(yaw_NED)
+        #print(msg.timestamp/1E6)
+        # msg.x = 0.0
+        # msg.y = 0.0
+        # msg.z = -1.0
+        # msg.yaw = 120*np.pi/180
         # self.get_logger().info("trajectory setpoint send")
         self.trajectory_setpoint_publisher_.publish(msg)
 

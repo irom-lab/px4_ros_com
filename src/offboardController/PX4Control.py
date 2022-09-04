@@ -63,11 +63,14 @@ class PX4Control(BaseControl):
         self.orient = 'NED'  # z down
         self.g = 9.8
 
+        #TODO: TEST THE NEW MASS/PROP THRUST SETPOINTS ON THE GROUND BEFORE FLIGHT
+        exit()
+
         # Set up params
         if self.DRONE_MODEL == DroneModel.X500:
-            self.mB = 1.2105
+            self.mB = 1.8
             dxm = dym = 0.25
-            MAX_RPM = 8000
+            MAX_RPM = 9660 # measured in RCBenchmark
             # # # Gains used in gym_pybullet_drones #TODO: verify same as hardware? vel_d?
             # self.pos_P_gain = np.array([0.95, 0.95, 1.0])
             # self.vel_P_gain = np.array([1.8, 1.8, 4.0])
@@ -113,8 +116,9 @@ class PX4Control(BaseControl):
         # Ppsi = 0.2
         self.att_P_gain = np.array([Pphi, Ptheta, Ppsi])
 
-        self.maxThr = (4 * self.KF * MAX_RPM**2)  # 0.5953
-        self.minThr = (1 * self.KF * MAX_RPM**2)  # ? 0.1488
+        self.maxThr = (4 * self.KF * MAX_RPM**2) # should be 44.89 N
+        self.minThr = (1 * self.KF * MAX_RPM**2) # should be 11.22 N
+        print("max: ",self.maxThr,", min: ",self.minThr)
         self.useIntergral = 1
         self.Ts = Ts
 

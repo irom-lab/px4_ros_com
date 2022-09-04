@@ -41,6 +41,8 @@
 #  * @ author Haotian Hang
 #  */
 
+# THIS PARTICULAR VERSION WAS USED FOR TRAINING, TO LOG CERTAIN VALUES
+
 # ROS2 Imports
 import rclpy
 from rclpy.node import Node
@@ -67,9 +69,13 @@ from utils.control import RotToQuat, quatMultiply, quatInverse, quat2Dcm
 # Imports for debugging
 import time
 import matplotlib.pyplot as plt
-
-duration = 25
-frequency = 1 #Hz
+# Debugging variables. ctrl+F "ie " / "ie_" to identify such variables... loggie, countie, etc...
+countie = 0
+duration = 10
+frequency = 40 #Hz
+countie_end = duration*frequency # 10 works for a 10 Hz sampling rate, 40 for 40Hz
+loggie = np.zeros((countie_end,11))
+print('loggie shape: '+ str(np.shape(loggie)))
 
 ctrl = [
     PX4Control(drone_model=DroneModel.X500, Ts=1e-2)
@@ -206,8 +212,8 @@ class OffboardControl(Node):
         yaw_offset = 2.08 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
 
         # setpoints in the Forrestal Frame
-        x_fr = 2.0         # [m]
-        y_fr = 0.0         # [m]
+        x_fr = 2.5         # [m]
+        y_fr = -0.5         # [m]
         z_fr = -1.0        # [m]
         yaw_fr = 0         # [rad] desired yaw in forrestal frame
 
@@ -249,8 +255,15 @@ class OffboardControl(Node):
         # thrust output of PX4Control must be normalized and negated
         #msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1]/max_thrust)])
         # Debugging variables (for plots)
+        global countie,loggie
+
+        loggie[countie,0:4] = np.array([self.vehicle_quat_])
+        loggie[countie,4:7] = np.array([msg.roll,msg.pitch,msg.yaw])
+        loggie[countie,7:10] = control[2] # pos error
+        loggie[countie,10] = control[1] # thrust_sp
 
 
+        countie += 1
         self.vehicle_rates_setpoint_publisher_.publish(msg)
     #  @ brief Publish vehicle commands
     #  @ param command   Command code(matches VehicleCommand and MAVLink MAV_CMD codes)
@@ -286,8 +299,33 @@ def main(argc, argv):
     while (time.time() - start_time) < duration:
         rclpy.spin_once(offboard_control, timeout_sec=0.1) 
     rclpy.shutdown()
+    fig = plt.figure()
+    ax1 = plt.subplot(3, 1, 1)
+    ax1.plot(np.transpose(loggie[:,4]),label='x')
+    ax1.plot(np.transpose(loggie[:,5]),label='y')
+    ax1.plot(np.transpose(loggie[:,6]),label='z')
+    ax1.set_title('Body Rate Setpoint')
+    ax1.set_ylabel('rad/s')
+    ax1.set_xlabel('deciseconds')
+    ax2 = plt.subplot(3, 1, 2)
+    ax2.plot(np.transpose(loggie[:,10]))
+    ax2.set_title('Thrust Setpoint: gazebo')
+    ax2.set_ylabel('normalized thrust')
+    ax2.set_xlabel('deciseconds')
+    ax3 = plt.subplot(3, 1, 3)
+    ax3.plot(np.transpose(loggie[:,7]),label='x')
+    ax3.plot(np.transpose(loggie[:,8]),label='y')
+    ax3.plot(np.transpose(loggie[:,9]),label='z')
+    ax3.legend()
+    ax3.set_title('Pos Error')
+    ax3.set_ylabel('m')
+    ax3.set_xlabel('deciseconds')
 
-    print('Duration exceeded. Goodbye!')
+    plt.subplots_adjust(hspace=0.6)
+    plt.show()
+    plt.savefig('attitude_br.png')
+
+    print('Goodbye, countie = '+str(countie))
 
 
 if __name__ == "__main__":

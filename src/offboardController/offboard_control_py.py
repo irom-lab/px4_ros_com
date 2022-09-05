@@ -125,9 +125,9 @@ class OffboardControl(Node):
         yaw_offset = 2.08 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
 
         # setpoints in the Forrestal Frame
-        x_fr = 0.0         # [m]
-        y_fr = 0.0         # [m]
-        z_fr = -2.5        # [m]
+        x_fr = 0.1         # [m]
+        y_fr = 0.1         # [m]
+        z_fr = -0.9        # [m]
         yaw_fr = 0         # [rad] desired yaw in forrestal frame
 
         pos_fr = np.array([[x_fr],[y_fr], [z_fr]])
@@ -143,9 +143,9 @@ class OffboardControl(Node):
         msg.timestamp = self.timestamp_
 
         # TODO: test!
-        msg.x = float(x_NED)
-        msg.y = float(y_NED)
-        msg.z = float(z_NED) # same as FR NED
+        msg.x = 0.0#float(x_NED)
+        msg.y = 0.0#float(y_NED)
+        msg.z = -1.5#float(z_NED) # same as FR NED
         msg.yaw = float(yaw_NED)
         #print(msg.timestamp/1E6)
         # msg.x = 0.0

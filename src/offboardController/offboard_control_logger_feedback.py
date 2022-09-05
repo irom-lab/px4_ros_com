@@ -50,6 +50,7 @@ import sys
 # Math Imports
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+import torch
 
 # PX4 Imported Messages - Offboard Mode
 from px4_msgs.msg import OffboardControlMode
@@ -120,10 +121,12 @@ class OffboardControl(Node):
         # TODO: add cfg file
         input_size = 15
         layer_size_list = [input_size, 256, 256, 128, 128, 4]
-        policy_path = 'src/offboardController/models/no_wind_3_policy.pth'
+        policy_path = 'models/no_wind_3_policy.pth'
         self.mlp = MLP(dimList=layer_size_list,
                 activation_type='relu',)
         self.mlp.load_weight(policy_path)
+        self.rate_residual_scale = 0.1
+        self.thrust_residual_scale = 1
 
 
     def timesync_callback(self, msg):
@@ -222,20 +225,23 @@ class OffboardControl(Node):
 
         yaw_offset = 2.08 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
 
-        # setpoints in the Forrestal Frame
-        x_fr = 2         # [m]
-        y_fr = 3       # [m]
-        z_fr = -3.0        # [m]
-        yaw_fr = 0         # [rad] desired yaw in forrestal frame
+        # # setpoints in the Forrestal Frame
+        # x_fr = 2.0         # [m]
+        # y_fr = 3.0       # [m]
+        # z_fr = -3.0        # [m]
+        # yaw_fr = 0         # [rad] desired yaw in forrestal frame
 
-        pos_fr = np.array([[x_fr],[y_fr], [z_fr]])
-        #rotation matrix (about Z axis)
-        Rz = np.array([[np.cos(yaw_offset), -np.sin(yaw_offset), 0],
-                    [np.sin(yaw_offset),  np.cos(yaw_offset), 0],
-                    [0,               0,              1]])
+        # pos_fr = np.array([[x_fr],[y_fr], [z_fr]])
+        # #rotation matrix (about Z axis)
+        # Rz = np.array([[np.cos(yaw_offset), -np.sin(yaw_offset), 0],
+        #             [np.sin(yaw_offset),  np.cos(yaw_offset), 0],
+        #             [0,               0,              1]])
 
-        # rotate setpoints to NED 
-        x_NED,y_NED,z_NED = np.matmul(Rz,pos_fr)
+        # # # rotate setpoints to NED 
+        # x_NED,y_NED,z_NED = np.matmul(Rz,pos_fr)
+        x_NED = 0.0
+        y_NED = 0.0
+        z_NED = -1.0
         #print(x_NED,y_NED,z_NED)
         #NOTE: vehicle_ang_v_ is in body frame but has NO EFFECT on quad
         state_vec = np.hstack([self.vehicle_pos_, self.vehicle_quat_, self.vehicle_rpy_,
@@ -244,21 +250,35 @@ class OffboardControl(Node):
         
         # Get residual
         if hasattr(self, 'mlp'):
-            obs_state = np.hstack((self.vehicle_pos_, self.vehicle_rpy_, self.vehicle_vel_, self.vehicle_ang_v_))
+            # switch from NED to RPY
+            pos_ENU = np.array([self.vehicle_pos_[1],self.vehicle_pos_[0],-self.vehicle_pos_[2]])
+            quat_gym_NED = np.hstack((self.vehicle_quat_[1:4],self.vehicle_quat_[0])) #back to [x,y,z,w] convention
+            quat_gym_ENU = np.array([quat_gym_NED[1],quat_gym_NED[0],-quat_gym_NED[2],quat_gym_NED[3]])
+            rpy_ENU = R.from_quat(quat_gym_ENU).as_euler('xyz', degrees=False)
+            vel_ENU = np.array([self.vehicle_vel_[1],self.vehicle_vel_[0],-self.vehicle_vel_[2]])
+            ang_vel_ENU = np.array([self.vehicle_ang_v_[1],self.vehicle_ang_v_[0],-self.vehicle_ang_v_[2]])
+            obs_state = np.hstack((pos_ENU, rpy_ENU, vel_ENU, ang_vel_ENU))
+            print(obs_state)
             obs_wind = np.zeros((3))    # TODO: add real wind observation
-            obs = np.hstack((obs_state, obs_wind))
-            obs = normalize_obs(obs)
+            obs_state = normalize_obs(obs_state)    # TODO: normalize wind
+            obs = torch.from_numpy(np.hstack((obs_state, obs_wind))).float()
             residual = self.mlp.infer(obs)
         else:
             residual = np.zeros((4))
-        
+
+        # Un-normalize residual
+        rate_residual = residual[:-1] * self.rate_residual_scale
+        thrust_residual = (residual[-1] + 1)/2 * self.thrust_residual_scale
+        print("Actual residual: ", rate_residual, thrust_residual)
+
         # NOTE: the PX4 body frame is NED. The PX4 uses the compass to find NORTH and places the POSITIVE X direction in that direction.
         # that is, aligning the drone in the typical fashion (front pointed along the longer, longitudinal axis of the room) is about a 114-140 degree offset.
         control = ctrl[0].computeRateAndThrustFromState(
             state=state_vec, #proper shape: (20,)
             target_pos=np.array([float(x_NED),float(y_NED),float(z_NED)]), #proper shape: (3,),
-            rate_residual=residual[:-1],
-            thrust_residual=residual[-1],
+            rate_residual=rate_residual,
+            thrust_residual=thrust_residual,
+            target_rpy=np.array([0,0,self.vehicle_rpy_[-1]]),
         )
         return control
 
@@ -345,7 +365,7 @@ def main(argc, argv):
     ax3.set_xlabel('deciseconds')
 
     plt.subplots_adjust(hspace=0.6)
-    plt.savefig('PX4_Default_2_3_-3.png')
+    plt.savefig('PX4Control-hardware-residual_2_3_-3.png')
     plt.show()
 
     print('Goodbye, countie = '+str(countie))

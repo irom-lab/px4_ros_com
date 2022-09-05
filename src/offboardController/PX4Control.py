@@ -8,6 +8,7 @@ from utils.control import RotToQuat, quatMultiply, quatInverse, quat2Dcm
 
 #Added
 from scipy.spatial.transform import Rotation as R
+#TODO: remove pybullet reference
 
 rad2deg = 180.0 / np.pi
 deg2rad = np.pi / 180.0
@@ -59,12 +60,12 @@ class PX4Control(BaseControl):
             )
             exit()
 
-        # self.orient = 'ENU'  # z up (original)
+        # self.orient = 'ENU'  # z up (gym)
         self.orient = 'NED'  # z down
         self.g = 9.8
 
         #TODO: TEST THE NEW MASS/PROP THRUST SETPOINTS ON THE GROUND BEFORE FLIGHT
-        exit()
+        #exit()
 
         # Set up params
         if self.DRONE_MODEL == DroneModel.X500:
@@ -283,7 +284,8 @@ class PX4Control(BaseControl):
                                       state,
                                       target_pos,
                                       rate_residual=np.zeros((3)),
-                                      thrust_residual=0):
+                                      thrust_residual=0,
+                                      target_rpy=np.zeros((3))):
         """Computes the PID control action (as body rates and thrust) for a single drone.
 
         Parameters
@@ -336,8 +338,8 @@ class PX4Control(BaseControl):
         self.vel_sp = np.zeros((3))
         self.acc_sp = np.zeros((3))
         self.thrust_sp = np.zeros((3))
-        self.eul_sp = np.zeros((3))
-        self.eul_sp[2] = 1.48 # setting yaw setpoint to nonzero can cause dramatic overcorrections
+        self.eul_sp = target_rpy
+        # self.eul_sp[2] = 1.63 # setting yaw setpoint to nonzero can cause dramatic overcorrections
         self.pqr_sp = 0
         self.yawFF = 0
 
@@ -353,7 +355,7 @@ class PX4Control(BaseControl):
         
         #TODO: check this!
 
-        return self.rate_sp, 2*thrust/self.maxThr, self.pos_sp[0:3] - self.pos
+        return self.rate_sp, np.sqrt(thrust/self.maxThr), self.pos_sp[0:3] - self.pos
 
     ################################################################################
 

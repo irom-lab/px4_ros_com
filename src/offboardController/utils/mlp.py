@@ -19,19 +19,19 @@ def normalize_obs(state):
     MAX_PITCH_ROLL = np.pi
     clipped_pos_xy = np.clip(state[0:2], -MAX_XY, MAX_XY)
     clipped_pos_z = np.clip(state[2], 0, MAX_Z)
-    clipped_rp = np.clip(state[7:9], -MAX_PITCH_ROLL, MAX_PITCH_ROLL)
-    clipped_vel_xy = np.clip(state[10:12], -MAX_LIN_VEL_XY, MAX_LIN_VEL_XY)
-    clipped_vel_z = np.clip(state[12], -MAX_LIN_VEL_Z, MAX_LIN_VEL_Z)
+    clipped_rp = np.clip(state[3:5], -MAX_PITCH_ROLL, MAX_PITCH_ROLL)
+    clipped_vel_xy = np.clip(state[6:8], -MAX_LIN_VEL_XY, MAX_LIN_VEL_XY)
+    clipped_vel_z = np.clip(state[8], -MAX_LIN_VEL_Z, MAX_LIN_VEL_Z)
     normalized_pos_xy = clipped_pos_xy / MAX_XY
     normalized_pos_z = clipped_pos_z / MAX_Z
     normalized_rp = clipped_rp / MAX_PITCH_ROLL
-    normalized_y = state[9] / np.pi  # No reason to clip
+    normalized_y = state[5] / np.pi  # No reason to clip
     normalized_vel_xy = clipped_vel_xy / MAX_LIN_VEL_XY
     normalized_vel_z = clipped_vel_z / MAX_LIN_VEL_Z
-    normalized_ang_vel = state[13:16] / np.linalg.norm(
-        state[13:16]) if np.linalg.norm(
-            state[13:16]) != 0 else state[13:16]
-    obs = torch.from_numpy(np.hstack([
+    normalized_ang_vel = state[9:12] / np.linalg.norm(
+        state[9:12]) if np.linalg.norm(
+            state[9:12]) != 0 else state[9:12]
+    obs = np.hstack([
         normalized_pos_xy, 
         normalized_pos_z, 
         normalized_rp,
@@ -39,7 +39,7 @@ def normalize_obs(state):
         normalized_vel_xy, 
         normalized_vel_z,
         normalized_ang_vel
-    ]).reshape(12, ))
+    ]).reshape(12, )
     return obs 
 
 
@@ -98,8 +98,8 @@ class MLP(nn.Module):
         return action
 
 
-    def load_weights(self, policy_path):
-        var = torch.load(policy_path)
+    def load_weight(self, policy_path):
+        var = torch.load(policy_path, map_location='cpu')
         with torch.no_grad():
             self.moduleList[0][0].weight = torch.nn.Parameter(var['actor.latent_pi.0.weight'])
             self.moduleList[0][0].bias = torch.nn.Parameter(var['actor.latent_pi.0.bias'])

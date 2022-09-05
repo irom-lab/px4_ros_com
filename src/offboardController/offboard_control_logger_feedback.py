@@ -65,6 +65,7 @@ from px4_msgs.msg import VehicleRatesSetpoint
 # PX4Control Imports
 from PX4Control import PX4Control, DroneModel
 from utils.control import RotToQuat, quatMultiply, quatInverse, quat2Dcm
+from utils.mlp import MLP, normalize_obs
 
 # Imports for debugging
 import time
@@ -114,6 +115,16 @@ class OffboardControl(Node):
         timer_period = 1/frequency  # seconds, 0.025 sec -> 40 Hz
         self.timer_ = self.create_timer(
             timer_period, self.timer_callback)
+
+        # Load residual model
+        # TODO: add cfg file
+        input_size = 15
+        layer_size_list = [input_size, 256, 256, 128, 128, 4]
+        policy_path = 'src/offboardController/models/no_wind_3_policy.pth'
+        self.mlp = MLP(dimList=layer_size_list,
+                activation_type='relu',)
+        self.mlp.load_weight(policy_path)
+
 
     def timesync_callback(self, msg):
         self.timestamp_ = msg.timestamp
@@ -231,11 +242,23 @@ class OffboardControl(Node):
                            self.vehicle_vel_, self.vehicle_ang_v_, np.zeros(4)])
         # TODO: do motors' speeds (RPMs) = np.zeros(4) matter for PX4Control?
         
+        # Get residual
+        if hasattr(self, 'mlp'):
+            obs_state = np.hstack((self.vehicle_pos_, self.vehicle_rpy_, self.vehicle_vel_, self.vehicle_ang_v_))
+            obs_wind = np.zeros((3))    # TODO: add real wind observation
+            obs = np.hstack((obs_state, obs_wind))
+            obs = normalize_obs(obs)
+            residual = self.mlp.infer(obs)
+        else:
+            residual = np.zeros((4))
+        
         # NOTE: the PX4 body frame is NED. The PX4 uses the compass to find NORTH and places the POSITIVE X direction in that direction.
         # that is, aligning the drone in the typical fashion (front pointed along the longer, longitudinal axis of the room) is about a 114-140 degree offset.
         control = ctrl[0].computeRateAndThrustFromState(
             state=state_vec, #proper shape: (20,)
-            target_pos=np.array([float(x_NED),float(y_NED),float(z_NED)]), #proper shape: (3,)
+            target_pos=np.array([float(x_NED),float(y_NED),float(z_NED)]), #proper shape: (3,),
+            rate_residual=residual[:-1],
+            thrust_residual=residual[-1],
         )
         return control
 

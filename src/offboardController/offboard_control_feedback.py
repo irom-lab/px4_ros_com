@@ -137,7 +137,7 @@ class OffboardControl(Node):
         self.vehicle_ang_v_ = np.array([msg.rollspeed,msg.pitchspeed,msg.yawspeed]) #FRD (body-fixed frame) rad/s
 
     def timer_callback(self):
-        print('rpy: ',self.vehicle_rpy_)
+        #print('rpy: ',self.vehicle_rpy_)
         #print('callback: ',self.received_odometry)
         if (self.offboard_setpoint_counter_ == 10 and self.received_odometry):
             # Change to Offboard mode 10 setpoints AFTER receiving vehicle_odometry
@@ -207,7 +207,7 @@ class OffboardControl(Node):
 
         # setpoints in the Forrestal Frame
         x_fr = 2.0         # [m]
-        y_fr = 0.0         # [m]
+        y_fr = 1.0         # [m]
         z_fr = -1.0        # [m]
         yaw_fr = 0         # [rad] desired yaw in forrestal frame
 
@@ -242,9 +242,9 @@ class OffboardControl(Node):
         msg.roll = np.clip(control[0][0],-0.8727,0.8727) # clip roll rate to +-50 deg/sec
         msg.pitch = np.clip(control[0][1],-0.8727,0.8727) # clip pitch rate to +-50 deg/sec
         msg.yaw = np.clip(control[0][2],-0.174533,0.174533) # clip yaw rate setpoint to +-10 deg/sec
-        # print("body rate sp: ", msg.roll, msg.pitch, msg.yaw)
+        print("body rate sp: ", msg.roll, msg.pitch, msg.yaw)
         # print("pos error: ", control[2])
-        # print('thrust output: ' + str(control[1]))
+        print('thrust output: ' + str(control[1]))
         msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1])])
         # thrust output of PX4Control must be normalized and negated
         #msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1]/max_thrust)])

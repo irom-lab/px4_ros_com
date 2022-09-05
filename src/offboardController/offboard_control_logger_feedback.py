@@ -71,7 +71,7 @@ import time
 import matplotlib.pyplot as plt
 # Debugging variables. ctrl+F "ie " / "ie_" to identify such variables... loggie, countie, etc...
 countie = 0
-duration = 10
+duration = 20
 frequency = 40 #Hz
 countie_end = duration*frequency # 10 works for a 10 Hz sampling rate, 40 for 40Hz
 loggie = np.zeros((countie_end,11))
@@ -143,14 +143,14 @@ class OffboardControl(Node):
         self.vehicle_ang_v_ = np.array([msg.rollspeed,msg.pitchspeed,msg.yawspeed]) #FRD (body-fixed frame) rad/s
 
     def timer_callback(self):
-        print('rpy: ',self.vehicle_rpy_)
+        #print('rpy: ',self.vehicle_rpy_)
         #print('callback: ',self.received_odometry)
         if (self.offboard_setpoint_counter_ == 10 and self.received_odometry):
             # Change to Offboard mode 10 setpoints AFTER receiving vehicle_odometry
             print("self.received_odometry",self.received_odometry)
             self.publish_vehicle_command(
                 VehicleCommand.VEHICLE_CMD_DO_SET_MODE, float(1), float(6))
-            #self.arm()
+            self.arm()
 
         # Publish offboard control mode 10 setpoints AFTER receiving vehicle_odometry
         if (self.offboard_setpoint_counter_ >= 10 and self.received_odometry):
@@ -194,7 +194,7 @@ class OffboardControl(Node):
         msg.timestamp = self.timestamp_
         msg.x = 3.0
         msg.y = 2.0
-        msg.z = -15.0
+        msg.z = -5.0
         # msg.position = np.array([np.float32(x), np.float32(y), np.float32(z)]) # Old definition
         # self.get_logger().info("trajectory setpoint send")
         self.trajectory_setpoint_publisher_.publish(msg)
@@ -212,9 +212,9 @@ class OffboardControl(Node):
         yaw_offset = 2.08 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
 
         # setpoints in the Forrestal Frame
-        x_fr = 2.5         # [m]
-        y_fr = -0.5         # [m]
-        z_fr = -1.0        # [m]
+        x_fr = 2         # [m]
+        y_fr = 3       # [m]
+        z_fr = -3.0        # [m]
         yaw_fr = 0         # [rad] desired yaw in forrestal frame
 
         pos_fr = np.array([[x_fr],[y_fr], [z_fr]])
@@ -248,9 +248,9 @@ class OffboardControl(Node):
         msg.roll = np.clip(control[0][0],-0.8727,0.8727) # clip roll rate to +-50 deg/sec
         msg.pitch = np.clip(control[0][1],-0.8727,0.8727) # clip pitch rate to +-50 deg/sec
         msg.yaw = np.clip(control[0][2],-0.174533,0.174533) # clip yaw rate setpoint to +-10 deg/sec
-        # print("body rate sp: ", msg.roll, msg.pitch, msg.yaw)
+        #print("body rate sp: ", msg.roll, msg.pitch, msg.yaw)
         # print("pos error: ", control[2])
-        # print('thrust output: ' + str(control[1]))
+        #print('thrust output: ' + str(control[1]))
         msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1])])
         # thrust output of PX4Control must be normalized and negated
         #msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1]/max_thrust)])
@@ -322,8 +322,8 @@ def main(argc, argv):
     ax3.set_xlabel('deciseconds')
 
     plt.subplots_adjust(hspace=0.6)
+    plt.savefig('PX4_Default_2_3_-3.png')
     plt.show()
-    plt.savefig('attitude_br.png')
 
     print('Goodbye, countie = '+str(countie))
 

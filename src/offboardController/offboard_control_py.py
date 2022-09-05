@@ -127,7 +127,7 @@ class OffboardControl(Node):
         # setpoints in the Forrestal Frame
         x_fr = 0.0         # [m]
         y_fr = 0.0         # [m]
-        z_fr = -1.0        # [m]
+        z_fr = -2.5        # [m]
         yaw_fr = 0         # [rad] desired yaw in forrestal frame
 
         pos_fr = np.array([[x_fr],[y_fr], [z_fr]])

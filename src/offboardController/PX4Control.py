@@ -85,35 +85,32 @@ class PX4Control(BaseControl):
             self.vel_D_gain = np.array([0.01, 0.01, 0.0]) # PREVIOUSLY TESTED
             self.vel_I_gain = np.array([0.4, 0.4, 2.0])
             self.rate_P_gain = np.array([0.15, 0.15, 0.2])
-            self.rate_D_gain = np.array([0.003, 0.003, 0.0])
+            self.rate_D_gain = np.array([0.003, 0.003, 0.0]) #NOT USED
 
             # # # Gains used by PX4 Autopilot
             # self.pos_P_gain = np.array([0.95, 0.95, 1.0])
             # self.vel_P_gain = np.array([1.8, 1.8, 4.0])
             # self.vel_D_gain = np.array([0.2, 0.2, 0.0]) # untested
             # self.vel_I_gain = np.array([0.4, 0.4, 2.0])
-            # self.rate_P_gain = np.array([0.15, 0.15, 0.2])
-            # self.rate_D_gain = np.array([0.004, 0.004, 0.0]) # untested
+            # self.rate_P_gain = np.array([0.15, 0.15, 0.2]) #PX4Vision: 0.106, 0.088, 0.11
+            # self.rate_D_gain = np.array([0.004, 0.004, 0.0]) # PX4Vision: 0.002, 0.002, 0
 
-        elif self.DRONE_MODEL == DroneModel.CF2X:
-            self.mB = 0.0397
-            MAX_RPM = 21000
-            dxm = dym = 0.0397
-            self.pos_P_gain = np.array([1.0, 1.0, 1.0])
-            self.vel_P_gain = np.array([1.0, 1.0, 1.0])
-            self.vel_D_gain = np.array([0.1, 0.1, 0.005])
-            self.vel_I_gain = np.array([0.01, 0.01, 0.01])
-            self.rate_P_gain = np.array([0.0003, 0.0003, 0])
-            self.rate_D_gain = np.array([0.00001, 0.000001, 0])
+        # elif self.DRONE_MODEL == DroneModel.CF2X:
+        #     self.mB = 0.0397
+        #     MAX_RPM = 21000
+        #     dxm = dym = 0.0397
+        #     self.pos_P_gain = np.array([1.0, 1.0, 1.0])
+        #     self.vel_P_gain = np.array([1.0, 1.0, 1.0])
+        #     self.vel_D_gain = np.array([0.1, 0.1, 0.005])
+        #     self.vel_I_gain = np.array([0.01, 0.01, 0.01])
+        #     self.rate_P_gain = np.array([0.0003, 0.0003, 0])
+        #     self.rate_D_gain = np.array([0.00001, 0.000001, 0])
 
-        # # Attitude P gains (used in gym_pybullet_drones)
+        # # Attitude P gains (used in PX4-Autopilot)
         Pphi = 6.5 
         Ptheta = Pphi
         Ppsi = 2.8 
-        # # gym-pybullet-drones
-        # Pphi = 1.0
-        # Ptheta = Pphi
-        # Ppsi = 0.2
+
         self.att_P_gain = np.array([Pphi, Ptheta, Ppsi])
 
         self.maxThr = (4 * self.KF * MAX_RPM**2) # should be 44.89 N
@@ -353,8 +350,10 @@ class PX4Control(BaseControl):
         self.attitude_control()
         self.rate_sp += rate_residual
         thrust = np.linalg.norm(self.thrust_sp) + thrust_residual
+        
+        #TODO: check this!
 
-        return self.rate_sp, thrust/self.maxThr, self.pos_sp[0:3] - self.pos
+        return self.rate_sp, 2*thrust/self.maxThr, self.pos_sp[0:3] - self.pos
 
     ################################################################################
 

@@ -48,3 +48,5 @@ rtps:
   - msg: VehicleRatesSetpoint
     receive: true
     send: true
+  - msg: BatteryStatus
+    send: true

@@ -116,7 +116,7 @@ class PX4Control(BaseControl):
 
         self.maxThr = (4 * self.KF * MAX_RPM**2) # should be 44.89 N
         self.minThr = (1 * self.KF * MAX_RPM**2) # should be 11.22 N
-        print("max: ",self.maxThr,", min: ",self.minThr)
+        #print("max: ",self.maxThr,", min: ",self.minThr)
         self.useIntergral = 1
         self.Ts = Ts
 
@@ -354,8 +354,11 @@ class PX4Control(BaseControl):
         thrust = np.linalg.norm(self.thrust_sp) + thrust_residual
         
         #TODO: check this!
+        line = np.array([4.29126457e-06, -4.87682879e+00])
+        p = (np.sqrt((thrust/4-line[1])/line[0])-1075)/(1950-1075)
+        p = np.clip(p, 0, 1)
 
-        return self.rate_sp, np.sqrt(thrust/self.maxThr), self.pos_sp[0:3] - self.pos
+        return self.rate_sp, p, self.pos_sp[0:3] - self.pos
 
     ################################################################################
 

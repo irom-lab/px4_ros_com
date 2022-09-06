@@ -1,0 +1,244 @@
+# /****************************************************************************
+#  *
+#  * Copyright 2020 PX4 Development Team. All rights reserved.
+#  *
+#  * Redistribution and use in source and binary forms, with or without
+#  * modification, are permitted provided that the following conditions are met:
+#  *
+#  * 1. Redistributions of source code must retain the above copyright notice, this
+#  * list of conditions and the following disclaimer.
+#  *
+#  * 2. Redistributions in binary form must reproduce the above copyright notice,
+#  * this list of conditions and the following disclaimer in the documentation
+#  * and/or other materials provided with the distribution.
+#  *
+#  * 3. Neither the name of the copyright holder nor the names of its contributors
+#  * may be used to endorse or promote products derived from this software without
+#  * specific prior written permission.
+#  *
+#  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+#  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+#  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+#  * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+#  * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+#  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+#  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+#  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+#  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+#  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+#  * POSSIBILITY OF SUCH DAMAGE.
+#  *
+#  ****************************************************************************/
+
+# /**
+#  * @brief Offboard control example
+#  * @file offboard_control_py.py
+#  * @addtogroup examples
+# * @ author < hanghaotian@gmail.com >, https://github.com/haotianh9/px4_ros_com/blob/master/scripts/offboard_control_py.py
+# * @ author Haotian Hang
+
+#  * The TrajectorySetpoint message and the OFFBOARD mode in general are under an ongoing update.
+#  * Please refer to PR: https://github.com/PX4/PX4-Autopilot/pull/16739 for more info.
+#  * As per PR: https://github.com/PX4/PX4-Autopilot/pull/17094, the format
+#  * of the TrajectorySetpoint message shall change.
+#  */
+
+import rclpy
+from rclpy.node import Node
+from px4_msgs.msg import OffboardControlMode
+from px4_msgs.msg import TrajectorySetpoint
+from px4_msgs.msg import Timesync
+from px4_msgs.msg import VehicleCommand
+from px4_msgs.msg import VehicleControlMode
+from px4_msgs.msg import VehicleRatesSetpoint
+from px4_msgs.msg import BatteryStatus
+
+
+import sys
+
+import numpy as np
+import time
+import csv
+
+
+class OffboardControl(Node):
+    def __init__(self):
+        super().__init__('offboard_control')
+        # initialize parameters
+        self.offboard_setpoint_counter_ = 0  # counter for the number of setpoints sent
+        self.timestamp_ = 0  # in python because of GIL,  the basic operations are already atomic
+        self.offboard_control_mode_publisher_ = self.create_publisher(
+            OffboardControlMode, "fmu/offboard_control_mode/in", 10)
+        self.trajectory_setpoint_publisher_ = self.create_publisher(
+            TrajectorySetpoint, "fmu/trajectory_setpoint/in", 10)
+        self.vehicle_rates_setpoint_publisher_ = self.create_publisher(
+            VehicleRatesSetpoint, "fmu/vehicle_rates_setpoint/in", 10)
+        self.vehicle_command_publisher_ = self.create_publisher(
+            VehicleCommand, "fmu/vehicle_command/in", 10)
+        self.timesync_sub_ = self.create_subscription(
+            Timesync, "fmu/timesync/out", self.timesync_callback, 10)
+        self.battery_status_sub_ = self.create_subscription(
+            BatteryStatus, "/fmu/battery_status/out", self.battery_status_callback, 10)
+        timer_period = 0.025  # seconds
+        self.timer_ = self.create_timer(
+            timer_period, self.timer_callback)
+        self.start_time = time.time()
+        self.voltage_ = 0.0
+        self.current_ = 0.0
+
+    def timesync_callback(self, msg):
+        self.timestamp_ = msg.timestamp
+    def battery_status_callback(self, msg):
+        self.voltage_ = msg.voltage_v # unfiltered
+        self.current_ = msg.current_a
+
+    def timer_callback(self):
+        if (self.offboard_setpoint_counter_ == 10):
+            # Change to Offboard mode after 10 setpoints
+            self.publish_vehicle_command(
+                VehicleCommand.VEHICLE_CMD_DO_SET_MODE, float(1), float(6))
+            self.arm()
+        # offboard_control_mode needs to be paired with trajectory_setpoint
+        self.publish_offboard_control_mode()
+        self.publish_vehicle_rates_setpoint() # note: NED
+        if (self.offboard_setpoint_counter_ < 11):
+            self.offboard_setpoint_counter_ += 1
+
+    # @brief  Send a command to Arm the vehicle
+
+    def arm(self):
+        self.publish_vehicle_command(
+            VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
+        self.get_logger().info("Arm command send")
+
+    # @brief  Send a command to Disarm the vehicle
+    def disarm(self):
+        self.publish_vehicle_command(
+            VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0)
+        self.get_logger().info("Disarm command send")
+
+    # @brief Publish the offboard control mode. For this example, only position and altitude controls are active.
+    def publish_offboard_control_mode(self):
+        msg = OffboardControlMode()
+        msg.timestamp = self.timestamp_
+        msg.position = False
+        msg.velocity = False
+        msg.acceleration = False
+        msg.attitude = False
+        msg.body_rate = True
+        # self.get_logger().info("offboard control mode publisher send")
+        self.offboard_control_mode_publisher_.publish(msg)
+  
+    # @ brief Publish a trajectory setpoint For this example, it sends a trajectory setpoint to make the vehicle hover at 5 meters with a yaw angle of 180 degrees.
+    def publish_trajectory_setpoint(self):
+        msg = TrajectorySetpoint()
+        # NOTE: the PX4 body frame is NED. The PX4 uses the compass to find NORTH and places the POSITIVE X direction in that direction.
+        # that is, aligning the drone in the typical fashion (front pointed along the longer, longitudinal axis of the room) is about a 114-140 degree offset.
+
+        # To compensate, rotate from "FORRESTAL ROOM" convention to "NED" convention
+        # Tested 220902 7:51 pm - works marvelously
+
+
+        yaw_offset = 2.08 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
+
+        # setpoints in the Forrestal Frame
+        x_fr = 0.1         # [m]
+        y_fr = 0.1         # [m]
+        z_fr = -0.9        # [m]
+        yaw_fr = 0         # [rad] desired yaw in forrestal frame
+
+        pos_fr = np.array([[x_fr],[y_fr], [z_fr]])
+        #rotation matrix (about Z axis)
+        Rz = np.array([[np.cos(yaw_offset), -np.sin(yaw_offset), 0],
+                    [np.sin(yaw_offset),  np.cos(yaw_offset), 0],
+                    [0,               0,              1]])
+
+        # rotate setpoints to NED 
+        x_NED,y_NED,z_NED = np.matmul(Rz,pos_fr)
+        yaw_NED = yaw_fr + yaw_offset # not currently used
+
+        msg.timestamp = self.timestamp_
+
+        # TODO: test!
+        msg.x = 0.0#float(x_NED)
+        msg.y = 0.0#float(y_NED)
+        msg.z = -1.5#float(z_NED) # same as FR NED
+        msg.yaw = float(yaw_NED)
+        #print(msg.timestamp/1E6)
+        # msg.x = 0.0
+        # msg.y = 0.0
+        # msg.z = -1.0
+        # msg.yaw = 120*np.pi/180
+        # self.get_logger().info("trajectory setpoint send")
+        self.trajectory_setpoint_publisher_.publish(msg)
+    # @ brief Publish a vehicle rates setpoint
+    def publish_vehicle_rates_setpoint(self):
+        msg = VehicleRatesSetpoint()
+        msg.timestamp = self.timestamp_
+
+        curr_time = time.time()-self.start_time # sec
+        duration_per_step = 3 # sec
+        num_durations = 2
+        num_subdivisions = 2 # 2 -> 1/2 -> 0.5 thrust setpoint subdivisions e.g., 0.0, 0.5, 1.0, 1.5, ...
+        max_thrust_sp = 0.80 # above this gets dicey...
+
+        curr_thrust_sp = int(curr_time/duration_per_step)/(10*num_subdivisions)
+
+        max_count_exit = 50 # 50 steps before exiting
+        curr_count_exit = 0
+
+        if curr_thrust_sp <= max_thrust_sp:
+            # BODY ANGULAR RATES IN NED FRAME (rad/sec)
+            msg.roll = 0.0
+            msg.pitch = 0.0
+            msg.yaw = 0.0
+            #thrust_sp = -0.5
+            thrust_sp = -curr_thrust_sp
+            print("curr_thrust_sp: ",curr_thrust_sp)
+            print("voltage: ",self.voltage_) 
+            print("current: ",self.current_)
+            with open("output.csv", "a") as f:   # use 'a' instead of 'ab'
+                np.savetxt(f, np.array([curr_thrust_sp, self.voltage_, self.current_]).reshape(1,3),delimiter=",")
+
+        else:
+            print("end of test, setting thrust_sp to 0.0")
+            thrust_sp = -0.0
+        
+        msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), np.float32(thrust_sp)])
+
+        self.vehicle_rates_setpoint_publisher_.publish(msg)
+    #  @ brief Publish vehicle commands
+    #  @ param command   Command code(matches VehicleCommand and MAVLink MAV_CMD codes)
+    #  @ param param1    Command parameter 1
+    #  @ param param2    Command parameter 2
+
+    def publish_vehicle_command(self, command, param1, param2=0.0):
+        msg = VehicleCommand()
+        msg.timestamp = self.timestamp_
+        msg.param1 = param1
+        msg.param2 = param2
+        msg.command = command
+        msg.target_system = 1
+        msg.target_component = 1
+        msg.source_system = 1
+        msg.source_component = 1
+        msg.from_external = True
+        self.vehicle_command_publisher_.publish(msg)
+
+
+def main(argc, argv):
+    print("Starting offboard control node...")
+    
+    with open("output.csv", "a") as f:   # use 'a' instead of 'ab'
+        f.write("curr_thrust_sp, self.voltage_, self.current_")
+        f.write("\n")
+    #f.write("\n")
+
+    rclpy.init()
+    offboard_control = OffboardControl()
+    rclpy.spin(offboard_control)
+    rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main(len(sys.argv), sys.argv)

@@ -9,7 +9,7 @@
     <inertial>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <!-- <origin rpy="0 0 0" xyz="-0.006 0.006 0"/> -->
-      <mass value="1.2105"/>
+      <mass value="1.8"/>
       <inertia ixx="2.25e-2" ixy="0.0" ixz="0.0" iyy="2.25e-2" iyz="0.0" izz="3.06e-2"/>
     </inertial>
 

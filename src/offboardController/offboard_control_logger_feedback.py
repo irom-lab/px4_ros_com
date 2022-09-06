@@ -70,6 +70,7 @@ from utils.mlp import MLP, normalize_obs
 
 # Imports for debugging
 import time
+import datetime
 import matplotlib.pyplot as plt
 # Debugging variables. ctrl+F "ie " / "ie_" to identify such variables... loggie, countie, etc...
 countie = 0
@@ -121,7 +122,8 @@ class OffboardControl(Node):
         # TODO: add cfg file
         input_size = 15
         layer_size_list = [input_size, 256, 256, 128, 128, 4]
-        policy_path = 'models/no_wind_3_policy.pth'
+        # layer_size_list = [input_size, 256, 256, 4]
+        policy_path = 'models/no_wind_3_fix_policy.pth'
         self.mlp = MLP(dimList=layer_size_list,
                 activation_type='relu',)
         self.mlp.load_weight(policy_path)
@@ -164,7 +166,7 @@ class OffboardControl(Node):
             print("self.received_odometry",self.received_odometry)
             self.publish_vehicle_command(
                 VehicleCommand.VEHICLE_CMD_DO_SET_MODE, float(1), float(6))
-            self.arm()
+            #self.arm()
 
         # Publish offboard control mode 10 setpoints AFTER receiving vehicle_odometry
         if (self.offboard_setpoint_counter_ >= 10 and self.received_odometry):
@@ -258,7 +260,7 @@ class OffboardControl(Node):
             vel_ENU = np.array([self.vehicle_vel_[1],self.vehicle_vel_[0],-self.vehicle_vel_[2]])
             ang_vel_ENU = np.array([self.vehicle_ang_v_[1],self.vehicle_ang_v_[0],-self.vehicle_ang_v_[2]])
             obs_state = np.hstack((pos_ENU, rpy_ENU, vel_ENU, ang_vel_ENU))
-            print(obs_state)
+            #print(obs_state)
             obs_wind = np.zeros((3))    # TODO: add real wind observation
             obs_state = normalize_obs(obs_state)    # TODO: normalize wind
             obs = torch.from_numpy(np.hstack((obs_state, obs_wind))).float()
@@ -267,8 +269,8 @@ class OffboardControl(Node):
             residual = np.zeros((4))
 
         # Un-normalize residual
-        rate_residual = residual[:-1] * self.rate_residual_scale
-        thrust_residual = (residual[-1] + 1)/2 * self.thrust_residual_scale
+        rate_residual = residual[:-1] * self.rate_residual_scale * 0
+        thrust_residual = residual[-1] * self.thrust_residual_scale * 0
         print("Actual residual: ", rate_residual, thrust_residual)
 
         # NOTE: the PX4 body frame is NED. The PX4 uses the compass to find NORTH and places the POSITIVE X direction in that direction.
@@ -291,10 +293,9 @@ class OffboardControl(Node):
         msg.roll = np.clip(control[0][0],-0.8727,0.8727) # clip roll rate to +-50 deg/sec
         msg.pitch = np.clip(control[0][1],-0.8727,0.8727) # clip pitch rate to +-50 deg/sec
         msg.yaw = np.clip(control[0][2],-0.174533,0.174533) # clip yaw rate setpoint to +-10 deg/sec
-        #print("body rate sp: ", msg.roll, msg.pitch, msg.yaw)
-        # print("pos error: ", control[2])
-        #print('thrust output: ' + str(control[1]))
-        msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1])])
+        print("body rate, thrust: ", msg.roll, msg.pitch, msg.yaw, control[1])
+        thrust_clipped = np.clip(control[1], 0.0,0.7)
+        msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(thrust_clipped)])
         # thrust output of PX4Control must be normalized and negated
         #msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1]/max_thrust)])
         # Debugging variables (for plots)
@@ -365,7 +366,9 @@ def main(argc, argv):
     ax3.set_xlabel('deciseconds')
 
     plt.subplots_adjust(hspace=0.6)
-    plt.savefig('PX4Control-hardware-residual_2_3_-3.png')
+    now = datetime.datetime.now()
+    print(now.year, now.month, now.day, now.hour, now.minute, now.second)
+    plt.savefig('PX4Control-hardware_pi_.png')
     plt.show()
 
     print('Goodbye, countie = '+str(countie))

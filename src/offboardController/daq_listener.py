@@ -34,6 +34,8 @@ subscription = lc.subscribe("VOLTAGES", my_handler)
 
 
 # do this frequently
+print("Why do I have two while loops? Must be a bugg... exiting")
+exit()
 try:
     while True:
         #lc.handle() #example default
@@ -42,7 +44,7 @@ try:
 
         timeout = 0  # amount of time to wait, in seconds
         while True:
-            rfds, wfds, efds = select.select([lc.fileno()], [], [], timeout)
+            rfds, wfds, efds = select.select([lc.fileno()], [], [], timeout) # rfds: file ready to read?
             if rfds:
                 lc.handle()
             else:

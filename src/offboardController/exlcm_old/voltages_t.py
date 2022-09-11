@@ -14,11 +14,11 @@ class voltages_t(object):
 
     __typenames__ = ["int64_t", "double"]
 
-    __dimensions__ = [None, [6]]
+    __dimensions__ = [None, [5]]
 
     def __init__(self):
         self.timestamp = 0
-        self.voltages = [ 0.0 for dim0 in range(6) ]
+        self.voltages = [ 0.0 for dim0 in range(5) ]
 
     def encode(self):
         buf = BytesIO()
@@ -28,7 +28,7 @@ class voltages_t(object):
 
     def _encode_one(self, buf):
         buf.write(struct.pack(">q", self.timestamp))
-        buf.write(struct.pack('>6d', *self.voltages[:6]))
+        buf.write(struct.pack('>5d', *self.voltages[:5]))
 
     def decode(data):
         if hasattr(data, 'read'):
@@ -43,13 +43,13 @@ class voltages_t(object):
     def _decode_one(buf):
         self = voltages_t()
         self.timestamp = struct.unpack(">q", buf.read(8))[0]
-        self.voltages = struct.unpack('>6d', buf.read(48))
+        self.voltages = struct.unpack('>5d', buf.read(40))
         return self
     _decode_one = staticmethod(_decode_one)
 
     def _get_hash_recursive(parents):
         if voltages_t in parents: return 0
-        tmphash = (0x121d000e83f5862) & 0xffffffffffffffff
+        tmphash = (0x121d000e83f5861) & 0xffffffffffffffff
         tmphash  = (((tmphash<<1)&0xffffffffffffffff) + (tmphash>>63)) & 0xffffffffffffffff
         return tmphash
     _get_hash_recursive = staticmethod(_get_hash_recursive)

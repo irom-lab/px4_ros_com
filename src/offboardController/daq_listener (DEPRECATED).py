@@ -8,19 +8,12 @@ import select
 from collections import namedtuple
 import numpy as np
 
-latest_msg = namedtuple("latest_msg", ["voltages", "timestamp"])
-latest_msg.voltages = np.zeros(5)
-latest_msg.timestamp = 0.0
-
 # From example
 def my_handler(channel, data):
     msg = voltages_t.decode(data)
     print("Received message on channel \"%s\"" % channel)
     print("   timestamp   = %s" % str(msg.timestamp))
     print("   voltages    = %s" % str(msg.voltages))
-    print(time.time())
-    global latest_msg 
-    latest_msg = msg
     print("")
 
 # def my_handler(channel, data):
@@ -34,23 +27,11 @@ subscription = lc.subscribe("VOLTAGES", my_handler)
 
 
 # do this frequently
-print("Why do I have two while loops? Must be a bugg... exiting")
-exit()
+# print("Why do I have two while loops? Must be a bugg... exiting")
+# exit()
 try:
     while True:
-        #lc.handle() #example default
-
- ########## attempt from https://github.com/lcm-proj/lcm/blob/master/examples/python/listener_select.py
-
-        timeout = 0  # amount of time to wait, in seconds
-        while True:
-            rfds, wfds, efds = select.select([lc.fileno()], [], [], timeout) # rfds: file ready to read?
-            if rfds:
-                lc.handle()
-            else:
-                print(latest_msg.voltages)
-                # print("Waiting for message...")        timeout = 0
-        
+        lc.handle() #example default
 
 except KeyboardInterrupt:
     pass

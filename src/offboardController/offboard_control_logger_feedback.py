@@ -62,6 +62,7 @@ from px4_msgs.msg import VehicleControlMode
 from px4_msgs.msg import VehicleOdometry
 # PX4 Imported Messages - Control
 from px4_msgs.msg import VehicleRatesSetpoint
+from px4_msgs.msg import BatteryStatus
 
 # PX4Control Imports
 from PX4Control import PX4Control, DroneModel
@@ -74,9 +75,11 @@ import datetime
 import matplotlib.pyplot as plt
 # Debugging variables. ctrl+F "ie " / "ie_" to identify such variables... loggie, countie, etc...
 countie = 0
-duration = 20
+duration = 45 # of entire run, sec
+
+start_time = time.time()
 frequency = 40 #Hz
-countie_end = duration*frequency # 10 works for a 10 Hz sampling rate, 40 for 40Hz
+countie_end = (duration-15)*frequency+1 # 10 works for a 10 Hz sampling rate, 40 for 40Hz
 loggie = np.zeros((countie_end,11))
 print('loggie shape: '+ str(np.shape(loggie)))
 
@@ -94,11 +97,20 @@ class OffboardControl(Node):
 
         # TODO: better way to create placeholder values - are these necessary?
         # NOTE: these zero initializations cause issues with the 'first setpoint message' (280 deg/sec yaw setpoint on 220902)
+
+        self.offboard_position_mode = True # start in position mode, switch to body rates after (see next line)
+        self.duration_position_sp = 15 #seconds
+        
         self.vehicle_pos_ = np.array([0.0, 0.0, 0.0])
         self.vehicle_quat_ = np.array([1.0, 0.0, 0.0, 0.0])
         self.vehicle_rpy_ = np.array([0.0, 0.0, 0.0])
         self.vehicle_vel_ = np.array([0.0, 0.0, 0.0])
         self.vehicle_ang_v_ = np.array([0.0, 0.0, 0.0])
+        self.voltage_v = 0.0
+        self.voltage_filtered_v =  0.0
+        self.current_a =  0.0
+        self.current_filtered_a	 =  0.0
+        self.initial_voltage_filtered_v = 0.0 # capture the value of voltage_filtered_v the first time that it is 
 
         self.offboard_control_mode_publisher_ = self.create_publisher(
             OffboardControlMode, "fmu/offboard_control_mode/in", 10)
@@ -113,21 +125,29 @@ class OffboardControl(Node):
 
         self.vehicle_odometry_sub_ = self.create_subscription(
             VehicleOdometry, "fmu/vehicle_odometry/out", self.vehicle_odometry_callback, 10)
-
+        # self.vehicle_rates_setpoint_sub_ = self.create_subscription(
+        #     VehicleRatesSetpoint, "fmu/vehicle_rates_setpoint/out", self.vehicle_rates_setpoint_callback, 10)
+        self.battery_status_sub_ = self.create_subscription(
+            BatteryStatus, "/fmu/battery_status/out", self.battery_status_callback, 10)
+        
         timer_period = 1/frequency  # seconds, 0.025 sec -> 40 Hz
         self.timer_ = self.create_timer(
             timer_period, self.timer_callback)
 
         # Load residual model
         # TODO: add cfg file
-        input_size = 15
-        layer_size_list = [input_size, 256, 256, 128, 128, 4]
-        # layer_size_list = [input_size, 256, 256, 4]
-        policy_path = 'models/no_wind_3_fix_policy.pth'
+        # input_size = 15 # fix
+        input_size = 12 # #unaware, trained in wind
+        # layer_size_list = [input_size, 256, 256, 128, 128, 4] #unaware, trained without wind 
+        layer_size_list = [input_size, 512, 256, 128, 128, 4] #unaware, trained in wind
+
+        # layer_size_list = [input_size, 256, 256, 4] #old
+        policy_path = 'models/step_rising_3_unaware.pth'
         self.mlp = MLP(dimList=layer_size_list,
                 activation_type='relu',)
         self.mlp.load_weight(policy_path)
-        self.rate_residual_scale = 0.1
+        # self.rate_residual_scale = 0.1 #fix
+        self.rate_residual_scale = 0.3 #unaware, trained in wind
         self.thrust_residual_scale = 1
 
 
@@ -142,9 +162,7 @@ class OffboardControl(Node):
         self.vehicle_quat_ = msg.q #FRD to reference (q_offset is from reference to navigation?)
 
         # TODO! Test
-        # self.vehicle_rpy_ = p.getEulerFromQuaternion(self.vehicle_quat_) # Euler angles not used for control
         rot = R.from_quat(self.vehicle_quat_)   # pybullet uses [x,y,z,w] for qusternion, scipy uses the same convention
-        #self.vehicle_rpy_  = rot.as_euler('xyz', degrees=False)
 
         self.vehicle_rpy_  = rot.as_euler('ZYX', degrees=False) #ROLL, PITCH, then YAW -- EXTRINSIC
         self.vehicle_rpy_[1] = -self.vehicle_rpy_[1]            #This operation is required to match PX4 attitude
@@ -158,9 +176,23 @@ class OffboardControl(Node):
         self.vehicle_vel_ = np.array([msg.vx,msg.vy,msg.vz]) #NED, m/s
         self.vehicle_ang_v_ = np.array([msg.rollspeed,msg.pitchspeed,msg.yawspeed]) #FRD (body-fixed frame) rad/s
 
+    def battery_status_callback(self, msg):
+        self.voltage_v = msg.voltage_v
+        self.voltage_filtered_v = msg.voltage_filtered_v
+        self.current_a = msg.current_a
+        self.current_filtered_a	 = msg.current_filtered_a
+        if self.voltage_filtered_v != 0.0 and self.initial_voltage_filtered_v == 0.0:
+            print("First nonzero filtered voltage measured. Set voltage to ",self.voltage_filtered_v," for simple thrust mapping.")
+            self.initial_voltage_filtered_v = self.voltage_filtered_v
+
+    # def vehicle_rates_setpoint_callback(self, msg):
+    #     # msg.roll
+    #     # msg.pitch
+    #     # msg.yaw
+    #     print("body_thrust_sp: ",msg.thrust_body)
+
+
     def timer_callback(self):
-        #print('rpy: ',self.vehicle_rpy_)
-        #print('callback: ',self.received_odometry)
         if (self.offboard_setpoint_counter_ == 10 and self.received_odometry):
             # Change to Offboard mode 10 setpoints AFTER receiving vehicle_odometry
             print("self.received_odometry",self.received_odometry)
@@ -171,7 +203,15 @@ class OffboardControl(Node):
         # Publish offboard control mode 10 setpoints AFTER receiving vehicle_odometry
         if (self.offboard_setpoint_counter_ >= 10 and self.received_odometry):
             self.publish_offboard_control_mode() # comment to print outputs but not switch mode autmomatically
-            self.publish_vehicle_rates_setpoint() # note: NED
+            
+            # switch to body rate setpoints self.duration_position_sp seconds after offboard mode
+            if ((time.time() - start_time) < self.duration_position_sp) and self.offboard_position_mode:
+                #print("POSITION_SP")
+                self.publish_trajectory_setpoint()
+            else:
+                self.offboard_position_mode = False
+                #print("BODY_RATE_SP")
+                self.publish_vehicle_rates_setpoint() # note: NED
 
         if (self.offboard_setpoint_counter_ < 11 and self.received_odometry):
             self.offboard_setpoint_counter_ += 1
@@ -193,11 +233,14 @@ class OffboardControl(Node):
     def publish_offboard_control_mode(self):
         msg = OffboardControlMode()
         msg.timestamp = self.timestamp_
-        msg.position = False
+        msg.position = self.offboard_position_mode
         msg.velocity = False
         msg.acceleration = False
         msg.attitude = False
-        msg.body_rate = True
+        msg.body_rate = not self.offboard_position_mode
+        print("msg.position: ",msg.position)
+        print("msg.body_rate: ",msg.body_rate)
+
         #self.get_logger().info("offboard control mode publisher send")
         self.offboard_control_mode_publisher_.publish(msg)
 
@@ -205,13 +248,15 @@ class OffboardControl(Node):
     def publish_trajectory_setpoint(self):
         # NOTE: the PX4 body frame is NED. The PX4 uses the compass to find NORTH and places the POSITIVE X direction in that direction.
         # that is, aligning the drone in the typical fashion (front pointed along the longer, longitudinal axis of the room) is about a 114-140 degree offset.
+        yaw_offset = 1.91
 
         msg = TrajectorySetpoint()
         msg.timestamp = self.timestamp_
-        msg.x = 3.0
-        msg.y = 2.0
-        msg.z = -5.0
-        # msg.position = np.array([np.float32(x), np.float32(y), np.float32(z)]) # Old definition
+        msg.x = 0.0
+        msg.y = 0.0
+        msg.z = -1.0
+        msg.yaw = yaw_offset
+        print("position sp: ",np.array([np.float32(msg.x), np.float32(msg.y), np.float32(msg.z)]))
         # self.get_logger().info("trajectory setpoint send")
         self.trajectory_setpoint_publisher_.publish(msg)
 
@@ -225,7 +270,7 @@ class OffboardControl(Node):
         # Angular velocity in WORLD_FRAME (3 values)
         # Motors' speeds (in RPMs, 4 values)
 
-        yaw_offset = 2.08 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
+        yaw_offset = 1.97 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
 
         # # setpoints in the Forrestal Frame
         # x_fr = 2.0         # [m]
@@ -261,26 +306,32 @@ class OffboardControl(Node):
             ang_vel_ENU = np.array([self.vehicle_ang_v_[1],self.vehicle_ang_v_[0],-self.vehicle_ang_v_[2]])
             obs_state = np.hstack((pos_ENU, rpy_ENU, vel_ENU, ang_vel_ENU))
             #print(obs_state)
-            obs_wind = np.zeros((3))    # TODO: add real wind observation
+            # obs_wind = np.zeros((3))    # TODO: add real wind observation
             obs_state = normalize_obs(obs_state)    # TODO: normalize wind
-            obs = torch.from_numpy(np.hstack((obs_state, obs_wind))).float()
+            # obs = torch.from_numpy(np.hstack((obs_state, obs_wind))).float()
+            obs = torch.from_numpy(obs_state).float()
             residual = self.mlp.infer(obs)
         else:
             residual = np.zeros((4))
 
         # Un-normalize residual
-        rate_residual = residual[:-1] * self.rate_residual_scale * 0
-        thrust_residual = residual[-1] * self.thrust_residual_scale * 0
-        print("Actual residual: ", rate_residual, thrust_residual)
+        rate_residual = residual[:-1] * self.rate_residual_scale #-0.3->0.3 rad/sec
+        thrust_residual = residual[-1] * self.thrust_residual_scale #-1->1 N
+        print("ENU residual: ", rate_residual, thrust_residual) # ENU
+        NED_rate_residual = np.array([rate_residual[1],rate_residual[0],-rate_residual[2]])
 
+        global countie,loggie
+
+        loggie[countie,0:3] = NED_rate_residual
+        loggie[countie,3] = thrust_residual
         # NOTE: the PX4 body frame is NED. The PX4 uses the compass to find NORTH and places the POSITIVE X direction in that direction.
         # that is, aligning the drone in the typical fashion (front pointed along the longer, longitudinal axis of the room) is about a 114-140 degree offset.
         control = ctrl[0].computeRateAndThrustFromState(
             state=state_vec, #proper shape: (20,)
             target_pos=np.array([float(x_NED),float(y_NED),float(z_NED)]), #proper shape: (3,),
-            rate_residual=rate_residual,
+            rate_residual=NED_rate_residual,
             thrust_residual=thrust_residual,
-            target_rpy=np.array([0,0,self.vehicle_rpy_[-1]]),
+            target_rpy=np.array([0,0,yaw_offset]),
         )
         return control
 
@@ -293,15 +344,16 @@ class OffboardControl(Node):
         msg.roll = np.clip(control[0][0],-0.8727,0.8727) # clip roll rate to +-50 deg/sec
         msg.pitch = np.clip(control[0][1],-0.8727,0.8727) # clip pitch rate to +-50 deg/sec
         msg.yaw = np.clip(control[0][2],-0.174533,0.174533) # clip yaw rate setpoint to +-10 deg/sec
-        print("body rate, thrust: ", msg.roll, msg.pitch, msg.yaw, control[1])
+        #print("body rate, thrust: ", msg.roll, msg.pitch, msg.yaw, control[1])
+        #print("voltage_filtere: ", self.voltage_filtered_v)
         thrust_clipped = np.clip(control[1], 0.0,0.7)
         msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(thrust_clipped)])
         # thrust output of PX4Control must be normalized and negated
         #msg.thrust_body = np.array([np.float32(0.0), np.float32(0.0), -np.float32(control[1]/max_thrust)])
         # Debugging variables (for plots)
+
         global countie,loggie
 
-        loggie[countie,0:4] = np.array([self.vehicle_quat_])
         loggie[countie,4:7] = np.array([msg.roll,msg.pitch,msg.yaw])
         loggie[countie,7:10] = control[2] # pos error
         loggie[countie,10] = control[1] # thrust_sp
@@ -329,47 +381,57 @@ class OffboardControl(Node):
 
 
 def main(argc, argv):
-    # # Original code
-    # print("Starting offboard control node...")
-    # rclpy.init()
-    # offboard_control = OffboardControl()
-    # rclpy.spin(offboard_control)
-    # rclpy.shutdown()
-    # # Adapted code for debugging, plots after duration seconds
+
     print("Starting offboard control node...")
     rclpy.init()
     offboard_control = OffboardControl()
-    start_time = time.time()
     while (time.time() - start_time) < duration:
         rclpy.spin_once(offboard_control, timeout_sec=0.1) 
     rclpy.shutdown()
+    print("Shutting down ROS node")
     fig = plt.figure()
-    ax1 = plt.subplot(3, 1, 1)
-    ax1.plot(np.transpose(loggie[:,4]),label='x')
-    ax1.plot(np.transpose(loggie[:,5]),label='y')
-    ax1.plot(np.transpose(loggie[:,6]),label='z')
+
+    ax1 = plt.subplot(6, 1, 1)
+    ax1.plot(np.transpose(loggie[0:countie,4]),label='x')
+    ax1.plot(np.transpose(loggie[0:countie,5]),label='y')
+    ax1.plot(np.transpose(loggie[0:countie,6]),label='z')
+    ax1.legend()
     ax1.set_title('Body Rate Setpoint')
     ax1.set_ylabel('rad/s')
-    ax1.set_xlabel('deciseconds')
-    ax2 = plt.subplot(3, 1, 2)
-    ax2.plot(np.transpose(loggie[:,10]))
-    ax2.set_title('Thrust Setpoint: gazebo')
-    ax2.set_ylabel('normalized thrust')
-    ax2.set_xlabel('deciseconds')
-    ax3 = plt.subplot(3, 1, 3)
-    ax3.plot(np.transpose(loggie[:,7]),label='x')
-    ax3.plot(np.transpose(loggie[:,8]),label='y')
-    ax3.plot(np.transpose(loggie[:,9]),label='z')
+
+    ax2 = plt.subplot(6, 1, 2)
+    ax2.plot(np.transpose(loggie[0:countie,10]))
+    ax2.set_title('Thrust Setpoint')
+
+    ax3 = plt.subplot(6, 1, 3)
+    ax3.plot(np.transpose(loggie[0:countie,7]),label='x')
+    ax3.plot(np.transpose(loggie[0:countie,8]),label='y')
     ax3.legend()
-    ax3.set_title('Pos Error')
+    ax3.set_title('Pos Error,xy')
     ax3.set_ylabel('m')
-    ax3.set_xlabel('deciseconds')
+    
+    ax4 = plt.subplot(6,1,4)
+    ax4.plot(np.transpose(loggie[0:countie,9]),label='z')
+    ax4.set_title('Pos Error,z')
+    ax4.set_ylabel('m')
+
+    ax5 = plt.subplot(6, 1, 5)
+    ax5.plot(np.transpose(loggie[0:countie,0]),label='rol_res')
+    ax5.plot(np.transpose(loggie[0:countie,1]),label='pitch_res')
+    ax5.plot(np.transpose(loggie[0:countie,2]),label='yaw_res')
+
+    ax6 = plt.subplot(6, 1, 6)
+    ax6.plot(np.transpose(loggie[0:countie,3]),label='thrust_res')
+    ax6.set_title('Residual')
+    ax6.set_xlabel('deciseconds*4')
 
     plt.subplots_adjust(hspace=0.6)
+
     now = datetime.datetime.now()
     print(now.year, now.month, now.day, now.hour, now.minute, now.second)
     plt.savefig('PX4Control-hardware_pi_.png')
-    plt.show()
+    header = "rol_res,pitch_res,yaw_res,thr_res,rollrate,pitchrate,yawrate,x,y,z,thrust"
+    np.savetxt('loggie.csv', loggie[0:countie,:], delimiter=',', fmt='%1.3f', header=header)
 
     print('Goodbye, countie = '+str(countie))
 

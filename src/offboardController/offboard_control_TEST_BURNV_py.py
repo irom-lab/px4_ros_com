@@ -61,8 +61,6 @@ import time
 import csv
 from datetime import datetime
 
-start_hour = datetime.now().hour
-start_minute = datetime.now().minute
 
 class OffboardControl(Node):
     def __init__(self):
@@ -150,7 +148,7 @@ class OffboardControl(Node):
         # Tested 220902 7:51 pm - works marvelously
 
 
-        yaw_offset = 1.8 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
+        yaw_offset = 2.08 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
 
         # setpoints in the Forrestal Frame
         x_fr = 0.1         # [m]
@@ -188,10 +186,10 @@ class OffboardControl(Node):
         msg.timestamp = self.timestamp_
 
         curr_time = time.time()-self.start_time # sec
-        duration_per_step = 2 # sec
+        duration_per_step = 3 # sec
         num_durations = 2
         num_subdivisions = 2 # 2 -> 1/2 -> 0.5 thrust setpoint subdivisions e.g., 0.0, 0.5, 1.0, 1.5, ...
-        max_thrust_sp = 0.50 # above this gets dicey...
+        max_thrust_sp = 0.80 # above this gets dicey...
 
         curr_thrust_sp = int(curr_time/duration_per_step)/(10*num_subdivisions)
 
@@ -203,15 +201,20 @@ class OffboardControl(Node):
             msg.roll = 0.0
             msg.pitch = 0.0
             msg.yaw = 0.0
-            thrust_sp = -0.5
+            thrust_sp = -0.4
             #thrust_sp = -curr_thrust_sp
             print("curr_thrust_sp: ",curr_thrust_sp)
+            print("thrust_sp: ",thrust_sp)
             print("voltage: ",self.voltage_v) 
             print("current: ",self.current_a)
-            # global start_hour
-            # global start_minute
-            # with open("data_"+str(start_hour)+str(start_minute)+".csv", "a") as f:   # use 'a' instead of 'ab'
-            #     #print(np.array([curr_thrust_sp, self.voltage_v, self.current_a, self.voltage_filtered_v, self.current_filtered_a, self.current_average_a, self.scale]).reshape(1,7))
+            # with open("data_hour_"+str(datetime.now().hour)+"_min_"+str(datetime.now().minute)+".csv", "a") as f:   # use 'a' instead of 'ab'
+            # # self.voltage_v = msg.voltage_v
+            # # self.voltage_filtered_v = msg.voltage_filtered_v
+            # # self.current_a = msg.current_a
+            # # self.current_filtered_a	 = msg.current_filtered_a
+            # # self.current_average_a	= msg.current_average_a
+            # # self.scale = msg.scale
+            #     print(np.array([curr_thrust_sp, self.voltage_v, self.current_a, self.voltage_filtered_v, self.current_filtered_a, self.current_average_a, self.scale]).reshape(1,7))
             #     np.savetxt(f, np.array([curr_thrust_sp, self.voltage_v, self.current_a, self.voltage_filtered_v, self.current_filtered_a, self.current_average_a, self.scale]).reshape(1,7),delimiter=",")
 
         else:
@@ -242,10 +245,11 @@ class OffboardControl(Node):
 
 def main(argc, argv):
     print("Starting offboard control node...")
-    # with open("data_"+str(start_hour)+str(start_minute)+".csv", "a") as f:   # use 'a' instead of 'ab'
+    
+    # with open("data_"+str(datetime.now().hour)+str(datetime.now().minute)+".csv", "a") as f:   # use 'a' instead of 'ab'
     #     f.write("curr_thrust_sp, voltage_v, current_a, voltage_filtered_v, current_filtered_a, current_average_a, scale")
     #     f.write("\n")
-    #f.write("\n")
+    # #f.write("\n")
 
     rclpy.init()
     offboard_control = OffboardControl()

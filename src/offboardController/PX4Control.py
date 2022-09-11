@@ -283,8 +283,8 @@ class PX4Control(BaseControl):
     def computeRateAndThrustFromState(self,
                                       state,
                                       target_pos,
-                                      rate_residual=np.zeros((3)),
-                                      thrust_residual=0,
+                                      rate_residual=np.zeros((3)), # NED
+                                      thrust_residual=0,           # up = positive
                                       target_rpy=np.zeros((3))):
         """Computes the PID control action (as body rates and thrust) for a single drone.
 
@@ -353,12 +353,18 @@ class PX4Control(BaseControl):
         self.rate_sp += rate_residual
         thrust = np.linalg.norm(self.thrust_sp) + thrust_residual
         
-        #TODO: check this!
-        line = np.array([4.29126457e-06, -4.87682879e+00])
-        p = (np.sqrt((thrust/4-line[1])/line[0])-1075)/(1950-1075)
-        p = np.clip(p, 0, 1)
+        # #NOTE: OLD! do not use
+        # line = np.array([4.29126457e-06, -4.87682879e+00])
+        # p = (np.sqrt((thrust/4-line[1])/line[0])-1075)/(1950-1075)
+        # p = np.clip(p, 0, 1)
 
-        return self.rate_sp, p, self.pos_sp[0:3] - self.pos
+        print("Thrust, N: ",thrust)
+        line = np.array([ 0.31519902, -0.1499657 ])
+        thrust_sp = line[0]*np.sqrt(thrust/4)+line[1]
+        thrust_sp = np.clip(thrust_sp, 0, 1)
+        print("Thrust sp: ",thrust_sp)
+
+        return self.rate_sp, thrust_sp, self.pos_sp[0:3] - self.pos
 
     ################################################################################
 

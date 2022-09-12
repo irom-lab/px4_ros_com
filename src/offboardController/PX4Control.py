@@ -350,13 +350,13 @@ class PX4Control(BaseControl):
         self.xy_vel_control()
         self.thrustToAttitude()
         self.attitude_control()
-        print("rate_sp pre-res: ",self.rate_sp)
+        #print("rate_sp pre-res: ",self.rate_sp)
         #TODO: test clipping in real
         #self.rate_sp = np.clip(self.rate_sp,-0.9,0.9)
-        print("rate_sp clipped: ",self.rate_sp)
-        print("rate_res: ",rate_residual)
+        #print("rate_sp clipped: ",self.rate_sp)
+        #print("rate_res: ",rate_residual)
         self.rate_sp += rate_residual
-        print("rate_sp post-res: ",self.rate_sp)
+        #print("rate_sp post-res: ",self.rate_sp)
         thrust = np.linalg.norm(self.thrust_sp) + thrust_residual
         
         # #NOTE: OLD! do not use
@@ -364,11 +364,11 @@ class PX4Control(BaseControl):
         # p = (np.sqrt((thrust/4-line[1])/line[0])-1075)/(1950-1075)
         # p = np.clip(p, 0, 1)
 
-        print("Thrust, N: ",thrust)
+        #print("Thrust, N: ",thrust)
         line = np.array([ 0.31519902, -0.1499657 ])
         thrust_sp = line[0]*np.sqrt(thrust/4)+line[1]
         thrust_sp = np.clip(thrust_sp, 0, 1)
-        print("Thrust sp: ",thrust_sp)
+        #print("Thrust sp: ",thrust_sp)
 
         return self.rate_sp, thrust_sp, self.pos_sp[0:3] - self.pos
 

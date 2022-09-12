@@ -73,10 +73,15 @@ from utils.mlp import MLP, normalize_obs
 import lcm
 from exlcm import flowdrone_t
 
+# For real-time wind estimation
+from collections import namedtuple
+import select
+from exlcm import voltages_t
+from sensor_to_wind import NeuralNetworkSpeed, NeuralNetworkAngle
+import torch
+
 # Imports for debugging
 import time
-import datetime
-import matplotlib.pyplot as plt
 
 duration = 45 # of entire run, sec
 
@@ -87,7 +92,8 @@ ctrl = [
     PX4Control(drone_model=DroneModel.X500, Ts=1e-2)
 ]
 
-lc = lcm.LCM()
+lc_flowdrone = lcm.LCM()
+lc_voltages = lcm.LCM()
 
 class OffboardControl(Node):
     def __init__(self):
@@ -178,6 +184,12 @@ class OffboardControl(Node):
         self.vehicle_vel_ = np.array([msg.vx,msg.vy,msg.vz]) #NED, m/s
         self.vehicle_ang_v_ = np.array([msg.rollspeed,msg.pitchspeed,msg.yawspeed]) #FRD (body-fixed frame) rad/s
 
+        # Sync wind_listener checks if there is a new message
+        timeout = 0.0
+        rfds, wfds, efds = select.select([lc_voltages.fileno()], [], [], timeout)
+        if rfds:
+            lc_voltages.handle()
+
     def battery_status_callback(self, msg):
         self.voltage_v = msg.voltage_v
         self.voltage_filtered_v = msg.voltage_filtered_v
@@ -186,13 +198,6 @@ class OffboardControl(Node):
         if self.voltage_filtered_v != 0.0 and self.initial_voltage_filtered_v == 0.0:
             print("First nonzero filtered voltage measured. Set voltage to ",self.voltage_filtered_v," for simple thrust mapping.")
             self.initial_voltage_filtered_v = self.voltage_filtered_v
-
-    # def vehicle_rates_setpoint_callback(self, msg):
-    #     # msg.roll
-    #     # msg.pitch
-    #     # msg.yaw
-    #     print("body_thrust_sp: ",msg.thrust_body)
-
 
     def timer_callback(self):
         if (self.offboard_setpoint_counter_ == 10 and self.received_odometry):
@@ -240,8 +245,8 @@ class OffboardControl(Node):
         msg.acceleration = False
         msg.attitude = False
         msg.body_rate = not self.offboard_position_mode
-        print("msg.position: ",msg.position)
-        print("msg.body_rate: ",msg.body_rate)
+        # print("msg.position: ",msg.position)
+        # print("msg.body_rate: ",msg.body_rate)
 
         #self.get_logger().info("offboard control mode publisher send")
         self.offboard_control_mode_publisher_.publish(msg)
@@ -258,7 +263,7 @@ class OffboardControl(Node):
         msg.y = 0.0
         msg.z = -1.0
         msg.yaw = yaw_offset
-        print("position sp: ",np.array([np.float32(msg.x), np.float32(msg.y), np.float32(msg.z)]))
+        #print("position sp: ",np.array([np.float32(msg.x), np.float32(msg.y), np.float32(msg.z)]))
         # self.get_logger().info("trajectory setpoint send")
         self.trajectory_setpoint_publisher_.publish(msg)
 
@@ -321,9 +326,9 @@ class OffboardControl(Node):
         #increase pitch scale
         #rate_residual[1] *= 2
         thrust_residual = residual[-1] * self.thrust_residual_scale #*0#-1->1 N
-        print("ENU residual: ", rate_residual, thrust_residual) # ENU
+        #print("ENU residual: ", rate_residual, thrust_residual) # ENU
         NED_rate_residual = np.array([rate_residual[1],rate_residual[0],-rate_residual[2]])
-        print("NED_rate_residual: ", NED_rate_residual) # NED
+        #print("NED_rate_residual: ", NED_rate_residual) # NED
 
         # NOTE: the PX4 body frame is NED. The PX4 uses the compass to find NORTH and places the POSITIVE X direction in that direction.
         # that is, aligning the drone in the typical fashion (front pointed along the longer, longitudinal axis of the room) is about a 114-140 degree offset.
@@ -339,12 +344,14 @@ class OffboardControl(Node):
         msg.drone_state = state_vec
         msg.thrust_sp = control[1]
         msg.body_rate_sp = control[0]
-        msg.wind_magnitude_estimate = 24.0
-        msg.wind_angle_estimate = 25.0
+        msg.wind_magnitude_estimate = latest_msg.wind_estimate
+        msg.wind_angle_estimate = latest_msg.angle_estimate
         msg.thrust_residual = thrust_residual
         msg.body_rate_residual = NED_rate_residual
+        
+        print("wind_estimate: ",latest_msg.wind_estimate, "angle_estimate: ",latest_msg.angle_estimate)
 
-        lc.publish("FLOWDRONE", msg.encode())
+        lc_flowdrone.publish("FLOWDRONE", msg.encode())
 
         return control
 
@@ -385,8 +392,26 @@ class OffboardControl(Node):
         msg.from_external = True
         self.vehicle_command_publisher_.publish(msg)
 
+def my_handler(channel, data):
+    msg = voltages_t.decode(data)
+    numpy_input = np.array([msg.voltages])[0][0:geometry]
+    numpy_input = (numpy_input-zero_wind_voltages[0]) # subtract 0 vel avg
+    numpy_input_speed = np.abs(numpy_input) # take absolute value
+    numpy_input_speed = -np.sort(-numpy_input_speed)[0:3] # sort in descending order
+    torch_input_speed = torch.from_numpy(numpy_input_speed).reshape((1,3)).float()
+    torch_input_angle = torch.from_numpy(numpy_input).reshape((1,geometry)).float()
+    wind_estimate = model_speed.forward(torch_input_speed).item()-zero_wind_estimate
+    angle_estimate = model_angle.forward(torch_input_angle).item()*180/np.pi#-zero_wind_estimate
+
+    # Update latest message
+    global latest_msg
+    latest_msg.wind_estimate = wind_estimate
+    latest_msg.angle_estimate = angle_estimate
+    #print("wind_estimate: ",latest_msg.wind_estimate, "angle_estimate: ",latest_msg.angle_estimate)
 
 def main(argc, argv):
+
+    subscription = lc_voltages.subscribe("VOLTAGES", my_handler)
 
     print("Starting offboard control node...")
     rclpy.init()
@@ -396,5 +421,40 @@ def main(argc, argv):
     rclpy.shutdown()
     print("Shutting down ROS node")
 
+    # Unsubscribe to lcm
+    lc_voltages.unsubscribe(subscription)
+
 if __name__ == "__main__":
+
+    geometry = 5 # geometry of mast (# of sensors)
+    # Load the speed neural network
+    model_speed = NeuralNetworkSpeed(crosswire=False, fullAngles=False, geom=geometry)
+    opt = torch.optim.Adam(model_speed.parameters(), lr=0.001)
+    model_speed_path = "/home/ubuntu/px4_ros_com_ros2/src/px4_ros_com/src/offboardController/models/N5_G"+str(geometry)+"_Loocv5_best.tar"
+    checkpoint = torch.load(model_speed_path)
+    model_speed.load_state_dict(checkpoint['model_state_dict'])
+    opt.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+    loss = checkpoint['loss']
+    model_speed.eval()
+    # Load the angle neural network
+    model_angle = NeuralNetworkAngle(crosswire=False, fullAngles=True, geom=geometry)
+    opt = torch.optim.Adam(model_angle.parameters(), lr=0.001)
+    model_angle_path = "/home/ubuntu/px4_ros_com_ros2/src/px4_ros_com/src/offboardController/models/N5_G"+str(geometry)+"_best.tar"
+    checkpoint = torch.load(model_angle_path)
+    model_angle.load_state_dict(checkpoint['model_state_dict'])
+    opt.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+    loss = checkpoint['loss']
+    model_angle.eval()
+
+    #Subscribe to the lcm channel
+    latest_msg = namedtuple("latest_msg", ["wind_estimate","angle_estimate"])
+    latest_msg.wind_estimate = 0.0
+    latest_msg.angle_estimate = 0.0
+    #Zero wind voltages must be periodically updated
+    zero_wind_voltages = np.array([2.76386,      2.78803,      2.68601,      2.80839,      2.81071]).reshape((1,geometry)) # in air, hover, position mode
+    zero_wind_estimate = model_speed.forward(torch.zeros(1,3)).item()
+    print("zero_wind_estimate: ",zero_wind_estimate)
+
     main(len(sys.argv), sys.argv)

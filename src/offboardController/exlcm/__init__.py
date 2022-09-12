@@ -9,3 +9,4 @@ from .exampleconst_t import exampleconst_t
 from .muldim_array_t import muldim_array_t
 from .node_t import node_t
 from .voltages_t import voltages_t
+from .flowdrone_t import flowdrone_t

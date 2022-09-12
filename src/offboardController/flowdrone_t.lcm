@@ -1,0 +1,13 @@
+package exlcm;
+
+struct flowdrone_t
+{
+    int64_t timestamp;
+    double  drone_state[20];
+    double  thrust_sp;
+    double  thrust_residual;
+    double  body_rate_sp[3];
+    double  body_rate_residual[3];
+    double  wind_magnitude_estimate;
+    double  wind_angle_estimate;
+}

@@ -199,7 +199,7 @@ class OffboardControl(Node):
         curr_count_exit = 0
 
         if curr_thrust_sp <= max_thrust_sp:
-            # BODY ANGULAR RATES IN NED FRAME (rad/sec)
+            # BODY ANGULAR RATES IN FRD FRAME (rad/sec)
             msg.roll = 0.0
             msg.pitch = 0.0
             msg.yaw = 0.0

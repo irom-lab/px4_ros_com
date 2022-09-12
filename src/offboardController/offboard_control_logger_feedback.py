@@ -69,6 +69,10 @@ from PX4Control import PX4Control, DroneModel
 from utils.control import RotToQuat, quatMultiply, quatInverse, quat2Dcm
 from utils.mlp import MLP, normalize_obs
 
+# LCM Imports
+import lcm
+from exlcm import flowdrone_t
+
 # Imports for debugging
 import time
 import datetime
@@ -80,12 +84,14 @@ duration = 45 # of entire run, sec
 start_time = time.time()
 frequency = 40 #Hz
 countie_end = (duration-15)*frequency+1 # 10 works for a 10 Hz sampling rate, 40 for 40Hz
-loggie = np.zeros((countie_end,11))
+loggie = np.zeros((countie_end,14))
 print('loggie shape: '+ str(np.shape(loggie)))
 
 ctrl = [
     PX4Control(drone_model=DroneModel.X500, Ts=1e-2)
 ]
+
+lc = lcm.LCM()
 
 class OffboardControl(Node):
     def __init__(self):
@@ -315,10 +321,13 @@ class OffboardControl(Node):
             residual = np.zeros((4))
 
         # Un-normalize residual
-        rate_residual = residual[:-1] * self.rate_residual_scale #-0.3->0.3 rad/sec
-        thrust_residual = residual[-1] * self.thrust_residual_scale #-1->1 N
+        rate_residual = residual[:-1] * self.rate_residual_scale #*0#-0.3->0.3 rad/sec
+        #increase pitch scale
+        #rate_residual[1] *= 2
+        thrust_residual = residual[-1] * self.thrust_residual_scale #*0#-1->1 N
         print("ENU residual: ", rate_residual, thrust_residual) # ENU
         NED_rate_residual = np.array([rate_residual[1],rate_residual[0],-rate_residual[2]])
+        print("NED_rate_residual: ", NED_rate_residual) # NED
 
         global countie,loggie
 
@@ -333,6 +342,18 @@ class OffboardControl(Node):
             thrust_residual=thrust_residual,
             target_rpy=np.array([0,0,yaw_offset]),
         )
+
+        msg = flowdrone_t()
+        msg.drone_state = state_vec
+        msg.thrust_sp = control[1]
+        msg.body_rate_sp = control[0]
+        msg.wind_magnitude_estimate = 24.0
+        msg.wind_angle_estimate = 25.0
+        msg.thrust_residual = thrust_residual
+        msg.body_rate_residual = NED_rate_residual
+
+        lc.publish("FLOWDRONE", msg.encode())
+
         return control
 
     # @ brief Publish a vehicle rates setpoint
@@ -357,7 +378,9 @@ class OffboardControl(Node):
         loggie[countie,4:7] = np.array([msg.roll,msg.pitch,msg.yaw])
         loggie[countie,7:10] = control[2] # pos error
         loggie[countie,10] = control[1] # thrust_sp
-
+        print("loggie[countie,11:14]: ",loggie[countie,11:14],np.shape(loggie[countie,11:14]))
+        print("self.vehicle_rpy_: ",self.vehicle_rpy_,np.shape(self.vehicle_rpy_))
+        loggie[countie,11:14] = self.vehicle_rpy_ #euler angles
 
         countie += 1
         self.vehicle_rates_setpoint_publisher_.publish(msg)
@@ -389,48 +412,59 @@ def main(argc, argv):
         rclpy.spin_once(offboard_control, timeout_sec=0.1) 
     rclpy.shutdown()
     print("Shutting down ROS node")
-    fig = plt.figure()
 
-    ax1 = plt.subplot(6, 1, 1)
-    ax1.plot(np.transpose(loggie[0:countie,4]),label='x')
-    ax1.plot(np.transpose(loggie[0:countie,5]),label='y')
-    ax1.plot(np.transpose(loggie[0:countie,6]),label='z')
-    ax1.legend()
-    ax1.set_title('Body Rate Setpoint')
-    ax1.set_ylabel('rad/s')
-
-    ax2 = plt.subplot(6, 1, 2)
-    ax2.plot(np.transpose(loggie[0:countie,10]))
-    ax2.set_title('Thrust Setpoint')
-
-    ax3 = plt.subplot(6, 1, 3)
-    ax3.plot(np.transpose(loggie[0:countie,7]),label='x')
-    ax3.plot(np.transpose(loggie[0:countie,8]),label='y')
-    ax3.legend()
-    ax3.set_title('Pos Error,xy')
-    ax3.set_ylabel('m')
     
-    ax4 = plt.subplot(6,1,4)
-    ax4.plot(np.transpose(loggie[0:countie,9]),label='z')
-    ax4.set_title('Pos Error,z')
-    ax4.set_ylabel('m')
+    fig, ax = plt.subplots(nrows = 4, ncols = 2, figsize=(10,10))
 
-    ax5 = plt.subplot(6, 1, 5)
-    ax5.plot(np.transpose(loggie[0:countie,0]),label='rol_res')
-    ax5.plot(np.transpose(loggie[0:countie,1]),label='pitch_res')
-    ax5.plot(np.transpose(loggie[0:countie,2]),label='yaw_res')
+    #ax[0,0] = plt.subplot(6, 1, 1)
+    ax[0,0].plot(np.transpose(loggie[0:countie,4]),label='x')
+    ax[0,0].plot(np.transpose(loggie[0:countie,5]),label='y')
+    ax[0,0].plot(np.transpose(loggie[0:countie,6]),label='z')
+    ax[0,0].legend()
+    ax[0,0].set_title('Body Rate Setpoint')
+    ax[0,0].set_ylabel('rad/s')
 
-    ax6 = plt.subplot(6, 1, 6)
-    ax6.plot(np.transpose(loggie[0:countie,3]),label='thrust_res')
-    ax6.set_title('Residual')
-    ax6.set_xlabel('deciseconds*4')
+    #ax[1,0] = plt.subplot(6, 1, 2)
+    ax[1,0].plot(np.transpose(loggie[0:countie,10]))
+    ax[1,0].set_title('Thrust Setpoint')
 
-    plt.subplots_adjust(hspace=0.6)
+    #ax[2,0] = plt.subplot(6, 1, 3)
+    ax[2,0].plot(np.transpose(loggie[0:countie,7]),label='x')
+    ax[2,0].plot(np.transpose(loggie[0:countie,8]),label='y')
+    ax[2,0].legend()
+    ax[2,0].set_title('Pos Error,xy')
+    ax[2,0].set_ylabel('m')
+
+    #ax[3,0] = plt.subplot(6,1,4)
+    ax[3,0].plot(np.transpose(loggie[0:countie,9]),label='z')
+    ax[3,0].set_title('Pos Error,z')
+    ax[3,0].set_ylabel('m')
+    
+    #ax[0,1] = plt.subplot(6, 1, 5)
+    ax[0,1].plot(np.transpose(loggie[0:countie,0]),label='rol_res')
+    ax[0,1].plot(np.transpose(loggie[0:countie,1]),label='pitch_res')
+    ax[0,1].plot(np.transpose(loggie[0:countie,2]),label='yaw_res')
+    ax[0,1].legend()
+
+    #ax[1,1] = plt.subplot(6, 1, 6)
+    ax[1,1].plot(np.transpose(loggie[0:countie,3]),label='thrust_res')
+    ax[1,1].set_title('Thrust Residual')
+    ax[1,1].set_xlabel('deciseconds*4')
+
+    ax[2,1].plot(np.transpose(loggie[0:countie,11]),label='r')
+    ax[2,1].plot(np.transpose(loggie[0:countie,12]),label='p')
+    ax[2,1].plot(np.transpose(loggie[0:countie,13]),label='y')
+    ax[2,1].set_title('RPY')
+    ax[2,1].set_xlabel('deciseconds*4')
+    ax[2,1].legend()
+
+    #plt.subplots_adjust(hspace=0.6)
+    plt.tight_layout()
 
     now = datetime.datetime.now()
     print(now.year, now.month, now.day, now.hour, now.minute, now.second)
     plt.savefig('PX4Control-hardware_pi_.png')
-    header = "rol_res,pitch_res,yaw_res,thr_res,rollrate,pitchrate,yawrate,x,y,z,thrust"
+    header = "rol_res,pitch_res,yaw_res,thr_res,rollrate,pitchrate,yawrate,x,y,z,thrust,roll,pitch,yaw"
     np.savetxt('loggie.csv', loggie[0:countie,:], delimiter=',', fmt='%1.3f', header=header)
 
     print('Goodbye, countie = '+str(countie))

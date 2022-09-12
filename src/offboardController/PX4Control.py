@@ -350,7 +350,13 @@ class PX4Control(BaseControl):
         self.xy_vel_control()
         self.thrustToAttitude()
         self.attitude_control()
+        print("rate_sp pre-res: ",self.rate_sp)
+        #TODO: test clipping in real
+        #self.rate_sp = np.clip(self.rate_sp,-0.9,0.9)
+        print("rate_sp clipped: ",self.rate_sp)
+        print("rate_res: ",rate_residual)
         self.rate_sp += rate_residual
+        print("rate_sp post-res: ",self.rate_sp)
         thrust = np.linalg.norm(self.thrust_sp) + thrust_residual
         
         # #NOTE: OLD! do not use
@@ -543,6 +549,8 @@ class PX4Control(BaseControl):
         # Add Yaw rate feed-forward
         self.rate_sp += quat2Dcm(quatInverse(self.quat)
                                  )[:, 2] * self.yawFF
+        # Limit rate setpoint
+        self.rate_sp = np.clip(self.rate_sp, -self.rateMax, self.rateMax)
 
     def rate_control(self):
 

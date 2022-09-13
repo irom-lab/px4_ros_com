@@ -50,7 +50,6 @@ import sys
 # Math Imports
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-import torch
 
 # PX4 Imported Messages - Offboard Mode
 from px4_msgs.msg import OffboardControlMode
@@ -89,12 +88,9 @@ duration = 20 # of entire run, sec
 start_time = time.time()
 frequency = 40 #Hz
 
-ctrl = [
-    PX4Control(drone_model=DroneModel.X500, Ts=1e-2)
-]
-
 lc_flowdrone = lcm.LCM()
 lc_voltages = lcm.LCM()
+
 
 class OffboardControl(Node):
     def __init__(self, cfg):
@@ -149,14 +145,13 @@ class OffboardControl(Node):
             self.lc_voltage_timer_period, self.lc_voltage_timer_callback)
 
         # Load residual model
-        # TODO: add cfg file
         # input_size = 15 # fix
         # input_size = 12 # #unaware, trained in wind
         # layer_size_list = [input_size, 256, 256, 128, 128, 4] #unaware, trained without wind 
         # layer_size_list = [input_size, 512, 256, 128, 128, 4] #unaware, trained in wind
-        layer_size_list = cfg.net_arch
+        layer_size_list = cfg.net_arch  # including input and output sizes
 
-        # layer_size_list = [input_size, 256, 256, 4] #old
+        # layer_size_list = [input_size, 256, 256, 4] # old
         # policy_path = 'models/step_rising_3_unaware.pth'
         self.mlp = MLP(dimList=layer_size_list,
                 activation_type='relu',)
@@ -166,6 +161,7 @@ class OffboardControl(Node):
         # self.thrust_residual_scale = 1
         self.rate_residual_scale = cfg.rate_residual_scale
         self.thrust_residual_scale = cfg.thrust_residual_scale
+        self.max_px4_rate = cfg.max_px4_rate
 
         # Wind
         self.wind_aware = cfg.wind_aware
@@ -178,6 +174,12 @@ class OffboardControl(Node):
         wind_frame_cover = (self.wind_num_frame - 1) * self.wind_frame_skip + self.wind_num_frame
         self.wind_obs_frames = deque(maxlen=wind_frame_cover)
 
+        # px4 control
+        self.ctrl = [
+            PX4Control(drone_model=DroneModel.X500, 
+                       Ts=1/frequency,
+                       max_rate=cfg.max_px4_rate)
+        ]
 
     def timesync_callback(self, msg):
         self.timestamp_ = msg.timestamp
@@ -387,7 +389,7 @@ class OffboardControl(Node):
 
         # NOTE: the PX4 body frame is NED. The PX4 uses the compass to find NORTH and places the POSITIVE X direction in that direction.
         # that is, aligning the drone in the typical fashion (front pointed along the longer, longitudinal axis of the room) is about a 114-140 degree offset.
-        control = ctrl[0].computeRateAndThrustFromState(
+        control = self.ctrl[0].computeRateAndThrustFromState(
             state=state_vec, #proper shape: (20,)
             target_pos=np.array([float(x_NED),float(y_NED),float(z_NED)]), #proper shape: (3,),
             rate_residual=body_rate_residual,

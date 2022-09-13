@@ -14,9 +14,8 @@ wind_num_frame: 0 #!
 wind_frame_skip: 0 
 max_wind: 5
 wind_freq: 40
+#
 rate_residual_scale: 0.3
 thrust_residual_scale: 1 # ~5% of body weight
-
-# TODO: add rate clipping for px4control
-# rate_max: 0.1 #!
+max_px4_rate: 0.1
 

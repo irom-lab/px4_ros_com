@@ -42,7 +42,8 @@ class PX4Control(BaseControl):
     def __init__(self,
                  drone_model: DroneModel,
                  g: float = 9.8,
-                 Ts: float = 1e-2):
+                 Ts: float = 1e-2,
+                 max_rate: float = 5.0):
         """Common control classes __init__ method.
 
         Parameters
@@ -121,10 +122,11 @@ class PX4Control(BaseControl):
         self.Ts = Ts
 
         self.tiltMax = 50.0 * deg2rad
-        pMax = 220.0 * deg2rad
-        qMax = 220.0 * deg2rad
-        rMax = 200.0 * deg2rad
-        self.rateMax = np.array([pMax, qMax, rMax])
+        # pMax = 220.0 * deg2rad
+        # qMax = 220.0 * deg2rad
+        # rMax = 200.0 * deg2rad
+        self.rateMax = np.ones((3))*max_rate
+        # np.array([pMax, qMax, rMax])
 
         self.saturateVel_separetely = False
         self.velMax = np.array([5.0, 5.0, 5.0])

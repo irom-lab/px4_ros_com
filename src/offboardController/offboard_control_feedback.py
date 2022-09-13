@@ -97,7 +97,7 @@ lc_flowdrone = lcm.LCM()
 lc_voltages = lcm.LCM()
 
 class OffboardControl(Node):
-    def __init__(self):
+    def __init__(self, cfg):
         super().__init__('offboard_control')
         # initialize parameters
         self.offboard_setpoint_counter_ = 0  # counter for the number of setpoints sent
@@ -151,25 +151,28 @@ class OffboardControl(Node):
         # Load residual model
         # TODO: add cfg file
         # input_size = 15 # fix
-        input_size = 12 # #unaware, trained in wind
+        # input_size = 12 # #unaware, trained in wind
         # layer_size_list = [input_size, 256, 256, 128, 128, 4] #unaware, trained without wind 
-        layer_size_list = [input_size, 512, 256, 128, 128, 4] #unaware, trained in wind
+        # layer_size_list = [input_size, 512, 256, 128, 128, 4] #unaware, trained in wind
+        layer_size_list = cfg.net_arch
 
         # layer_size_list = [input_size, 256, 256, 4] #old
-        policy_path = 'models/step_rising_3_unaware.pth'
+        # policy_path = 'models/step_rising_3_unaware.pth'
         self.mlp = MLP(dimList=layer_size_list,
                 activation_type='relu',)
-        self.mlp.load_weight(policy_path)
+        self.mlp.load_weight(cfg.policy_path)
         # self.rate_residual_scale = 0.1 #fix
-        self.rate_residual_scale = 0.3 #unaware, trained in wind
-        self.thrust_residual_scale = 1
+        # self.rate_residual_scale = 0.3 #unaware, trained in wind
+        # self.thrust_residual_scale = 1
+        self.rate_residual_scale = cfg.rate_residual_scale
+        self.thrust_residual_scale = cfg.thrust_residual_scale
 
         # Wind
-        self.wind_freq = 40
-        self.wind_num_frame = 5
-        self.wind_frame_skip = 2
-        self.max_wind = 5
-        self.rolling_period = 0.1 #sec
+        self.wind_freq = cfg.wind_freq
+        self.wind_num_frame = cfg.wind_num_frame
+        self.wind_frame_skip = cfg.wind_frame_skip
+        self.max_wind = cfg.max_wind
+        self.rolling_period = cfg.rolling_period #sec
         self.wind_all = []
         wind_frame_cover = (self.wind_num_frame - 1) * self.wind_frame_skip + self.wind_num_frame
         self.wind_obs_frames = deque(maxlen=wind_frame_cover)
@@ -465,13 +468,13 @@ def my_handler(channel, data):
     self.wind_all += [wind_estimate]
     #print("wind_estimate: ",latest_msg.wind_estimate, "angle_estimate: ",latest_msg.angle_estimate)
 
-def main(argc, argv):
+def main(cfg):
 
     subscription = lc_voltages.subscribe("VOLTAGES", my_handler)
 
     print("Starting offboard control node...")
     rclpy.init()
-    offboard_control = OffboardControl()
+    offboard_control = OffboardControl(cfg)
     while (time.time() - start_time) < duration:
         rclpy.spin_once(offboard_control, timeout_sec=0.1) 
     rclpy.shutdown()
@@ -513,4 +516,13 @@ if __name__ == "__main__":
     zero_wind_estimate = model_speed.forward(torch.zeros(1,3)).item()
     print("zero_wind_estimate: ",zero_wind_estimate)
 
-    main(len(sys.argv), sys.argv)
+    import argparse
+    from omegaconf import OmegaConf
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-cf",
+                        "--cfg_file",
+                        help="cfg file path",
+                        type=str)
+    args = parser.parse_args()
+    cfg = OmegaConf.load(args.cfg_file)
+    main(cfg)

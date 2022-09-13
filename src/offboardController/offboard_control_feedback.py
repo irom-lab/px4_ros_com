@@ -323,7 +323,7 @@ class OffboardControl(Node):
         
         # Wind rolling average
         wind_obs_filtered = max(wind_all[-int(1/self.lc_voltage_timer_period*self.rolling_period):])
-        self.wind_obs_frames.appendleft([wind_obs_filtered, 0, 0])
+        self.wind_obs_frames.appendleft([wind_obs_filtered])
         #print("wind_all: ", wind_all)
         if self.wind_aware:
             wind_obs_current = get_frames(self.wind_obs_frames, self.wind_num_frame, self.wind_frame_skip)

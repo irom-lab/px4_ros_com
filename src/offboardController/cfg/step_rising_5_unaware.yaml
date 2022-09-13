@@ -8,7 +8,7 @@ net_arch:
  - 128
  - 4
 # wind
-# wind_aware: False #!
+wind_aware: False #!
 rolling_period: 0.1
 wind_num_frame: 0 #!
 wind_frame_skip: 0 

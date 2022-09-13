@@ -84,7 +84,7 @@ import torch
 # Imports for debugging
 import time
 
-duration = 60 # of entire run, sec
+duration = 20 # of entire run, sec
 
 start_time = time.time()
 frequency = 40 #Hz
@@ -108,8 +108,8 @@ class OffboardControl(Node):
         # NOTE: these zero initializations cause issues with the 'first setpoint message' (280 deg/sec yaw setpoint on 220902)
 
         self.offboard_position_mode = True # start in position mode, switch to body rates after (see next line)
-        self.duration_position_sp = 0 #seconds
-        self.yaw_offset = 1.83 # what is the drone's NED yaw when aligned with the forrestal frame?
+        self.duration_position_sp = 10 #seconds
+        self.yaw_offset = 1.93 # what is the drone's NED yaw when aligned with the forrestal frame?
 
         self.vehicle_pos_ = np.array([0.0, 0.0, 0.0])
         self.vehicle_quat_ = np.array([1.0, 0.0, 0.0, 0.0])
@@ -168,12 +168,13 @@ class OffboardControl(Node):
         self.thrust_residual_scale = cfg.thrust_residual_scale
 
         # Wind
+        self.wind_aware = cfg.wind_aware
         self.wind_freq = cfg.wind_freq
         self.wind_num_frame = cfg.wind_num_frame
         self.wind_frame_skip = cfg.wind_frame_skip
         self.max_wind = cfg.max_wind
         self.rolling_period = cfg.rolling_period #sec
-        self.wind_all = []
+        wind_all = []
         wind_frame_cover = (self.wind_num_frame - 1) * self.wind_frame_skip + self.wind_num_frame
         self.wind_obs_frames = deque(maxlen=wind_frame_cover)
 
@@ -197,8 +198,7 @@ class OffboardControl(Node):
 
         # Roll, Pitch Safety Check
         if abs(self.vehicle_rpy_[0]) > 0.5235 or abs(self.vehicle_rpy_[1]) > 0.5235:
-            print("Roll or pitch safety tolerance exceeded")
-            exit()
+            raise "Roll or pitch safety tolerance exceeded"
 
         self.vehicle_vel_ = np.array([msg.vx,msg.vy,msg.vz]) #NED, m/s
         self.vehicle_ang_v_ = np.array([msg.rollspeed,msg.pitchspeed,msg.yawspeed]) #FRD (body-fixed frame) rad/s
@@ -320,11 +320,16 @@ class OffboardControl(Node):
         # TODO: do motors' speeds (RPMs) = np.zeros(4) matter for PX4Control?
         
         # Wind rolling average
-        wind_obs_filtered = max(self.wind_all[-int(1/self.lc_voltage_timer_period*self.rolling_period):])
+        wind_obs_filtered = max(wind_all[-int(1/self.lc_voltage_timer_period*self.rolling_period):])
         self.wind_obs_frames.appendleft([wind_obs_filtered, 0, 0])
-        wind_obs_current = get_frames(self.wind_obs_frames)
-        wind_obs_current = np.clip(wind_obs_current/self.max_wind, -1, 1)
-        print("wind_obs_current: ",wind_obs_current)
+        #print("wind_all: ", wind_all)
+        if self.wind_aware:
+            wind_obs_current = get_frames(self.wind_obs_frames, self.wind_num_frame, self.wind_frame_skip)
+            wind_obs_current = np.clip(wind_obs_current/self.max_wind, -1, 1)
+        else:
+            wind_obs_current = []
+        print("wind_obs_current: ", wind_obs_current)
+
         # Get residual
         pos_fr_FLU = np.zeros([3,])
         rpy_FLU = np.zeros([3,])
@@ -339,7 +344,6 @@ class OffboardControl(Node):
             r_NED = R.from_quat(quat_gym_NED)
             rpy_NED = r_NED.as_euler('xyz', degrees=False) # roll pitch yaw of body frame to NED # extrinsic
             print("rpy_NED: ",rpy_NED)
-            exit()
             R_NED = r_NED.as_matrix()
             rpy_fr_NED = rpy_NED
             rpy_fr_NED[2] = rpy_NED[2]-self.yaw_offset # roll pitch yaw of body frame to forrestal frame, NED
@@ -372,13 +376,13 @@ class OffboardControl(Node):
             residual = np.zeros((4))
 
         # Un-normalize residual
-        rate_residual = residual[:-1] * self.rate_residual_scale*0#-0.3->0.3 rad/sec
+        rate_residual = residual[:-1] * self.rate_residual_scale#-0.3->0.3 rad/sec
         #increase pitch scale
         #rate_residual[1] *= 2
-        thrust_residual = residual[-1] * self.thrust_residual_scale*0#-1->1 N
+        thrust_residual = residual[-1] * self.thrust_residual_scale#-1->1 N
         #print("ENU residual: ", rate_residual, thrust_residual) # ENU
         body_rate_residual = np.matmul(np.transpose(R_fr_ENU),rate_residual) # ang vel from forrestal ENU frame to body frame
-
+        print("residual: ",body_rate_residual)
         #print("NED_rate_residual: ", NED_rate_residual) # NED
 
         # NOTE: the PX4 body frame is NED. The PX4 uses the compass to find NORTH and places the POSITIVE X direction in that direction.
@@ -402,6 +406,10 @@ class OffboardControl(Node):
         msg.thrust_sp = control[1]
         msg.body_rate_sp = control[0]
         msg.wind_magnitude_estimate = latest_msg.wind_estimate
+        if len(wind_obs_current) == 0:
+            msg.wind_obs_current = np.zeros((15))
+        else:
+            msg.wind_obs_current = wind_obs_current
         msg.wind_angle_estimate = latest_msg.angle_estimate
         msg.thrust_residual = thrust_residual
         msg.body_rate_residual = body_rate_residual
@@ -464,8 +472,9 @@ def my_handler(channel, data):
     global latest_msg
     latest_msg.wind_estimate = wind_estimate
     latest_msg.angle_estimate = angle_estimate
-
-    self.wind_all += [wind_estimate]
+    
+    global wind_all
+    wind_all += [wind_estimate]
     #print("wind_estimate: ",latest_msg.wind_estimate, "angle_estimate: ",latest_msg.angle_estimate)
 
 def main(cfg):
@@ -511,6 +520,9 @@ if __name__ == "__main__":
     latest_msg = namedtuple("latest_msg", ["wind_estimate","angle_estimate"])
     latest_msg.wind_estimate = 0.0
     latest_msg.angle_estimate = 0.0
+
+    wind_all = []
+
     #Zero wind voltages must be periodically updated
     zero_wind_voltages = np.array([2.76386,      2.78803,      2.68601,      2.80839,      2.81071]).reshape((1,geometry)) # in air, hover, position mode
     zero_wind_estimate = model_speed.forward(torch.zeros(1,3)).item()

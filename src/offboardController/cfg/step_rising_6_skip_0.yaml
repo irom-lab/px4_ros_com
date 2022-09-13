@@ -1,7 +1,7 @@
 
-policy_path: models/step_rising_5_skip_0.pth
+policy_path: models/step_rising_6_skip_0.pth
 net_arch:
- - 12 #?????
+ - 17
  - 512
  - 256
  - 128

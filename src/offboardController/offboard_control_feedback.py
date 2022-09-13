@@ -68,13 +68,14 @@ from px4_msgs.msg import BatteryStatus
 from PX4Control import PX4Control, DroneModel
 from utils.control import RotToQuat, quatMultiply, quatInverse, quat2Dcm
 from utils.mlp import MLP, normalize_obs
+from utils.frame import get_frames
 
 # LCM Imports
 import lcm
 from exlcm import flowdrone_t
 
 # For real-time wind estimation
-from collections import namedtuple
+from collections import namedtuple, deque
 import select
 from exlcm import voltages_t
 from sensor_to_wind import NeuralNetworkSpeed, NeuralNetworkAngle
@@ -107,8 +108,8 @@ class OffboardControl(Node):
         # NOTE: these zero initializations cause issues with the 'first setpoint message' (280 deg/sec yaw setpoint on 220902)
 
         self.offboard_position_mode = True # start in position mode, switch to body rates after (see next line)
-        self.duration_position_sp = 15 #seconds
-        self.yaw_offset = 1.90 # what is the drone's NED yaw when aligned with the forrestal frame?
+        self.duration_position_sp = 0 #seconds
+        self.yaw_offset = 1.83 # what is the drone's NED yaw when aligned with the forrestal frame?
 
         self.vehicle_pos_ = np.array([0.0, 0.0, 0.0])
         self.vehicle_quat_ = np.array([1.0, 0.0, 0.0, 0.0])
@@ -143,9 +144,9 @@ class OffboardControl(Node):
         self.timer_ = self.create_timer(
             timer_period, self.timer_callback)
 
-        lc_voltage_timer_period = 0.001 # seconds, can be adjusted as needed
+        self.lc_voltage_timer_period = 0.001 # seconds, can be adjusted as needed
         self.lc_voltage_timer_ = self.create_timer(
-            lc_voltage_timer_period, self.lc_voltage_timer_callback)
+            self.lc_voltage_timer_period, self.lc_voltage_timer_callback)
 
         # Load residual model
         # TODO: add cfg file
@@ -162,6 +163,16 @@ class OffboardControl(Node):
         # self.rate_residual_scale = 0.1 #fix
         self.rate_residual_scale = 0.3 #unaware, trained in wind
         self.thrust_residual_scale = 1
+
+        # Wind
+        self.wind_freq = 40
+        self.wind_num_frame = 5
+        self.wind_frame_skip = 2
+        self.max_wind = 5
+        self.rolling_period = 0.1 #sec
+        self.wind_all = []
+        wind_frame_cover = (self.wind_num_frame - 1) * self.wind_frame_skip + self.wind_num_frame
+        self.wind_obs_frames = deque(maxlen=wind_frame_cover)
 
 
     def timesync_callback(self, msg):
@@ -305,6 +316,12 @@ class OffboardControl(Node):
                            self.vehicle_vel_, self.vehicle_ang_v_, np.zeros(4)])
         # TODO: do motors' speeds (RPMs) = np.zeros(4) matter for PX4Control?
         
+        # Wind rolling average
+        wind_obs_filtered = max(self.wind_all[-int(1/self.lc_voltage_timer_period*self.rolling_period):])
+        self.wind_obs_frames.appendleft([wind_obs_filtered, 0, 0])
+        wind_obs_current = get_frames(self.wind_obs_frames)
+        wind_obs_current = np.clip(wind_obs_current/self.max_wind, -1, 1)
+        print("wind_obs_current: ",wind_obs_current)
         # Get residual
         pos_fr_FLU = np.zeros([3,])
         rpy_FLU = np.zeros([3,])
@@ -312,38 +329,53 @@ class OffboardControl(Node):
         ang_vel_FLU = np.zeros([3,])
         if hasattr(self, 'mlp'):
             # switch from NED to RPY
-            pos_fr_FRD = np.matmul(np.transpose(Rz),self.vehicle_pos_) # position in the forrestal frame, fixed FRD
-            pos_fr_FLU = np.array([pos_fr_FRD[0],-pos_fr_FRD[1],-pos_fr_FRD[2]]) # position in the forrestal, fixed FLU
+            pos_fr_NED = np.matmul(np.transpose(Rz),self.vehicle_pos_) # rotate NED position to forrestal frame
+            pos_fr_ENU = np.array([pos_fr_NED[0],-pos_fr_NED[1],-pos_fr_NED[2]]) # forrestal frame ENU
             quat_gym_NED = np.hstack((self.vehicle_quat_[1:4],self.vehicle_quat_[0])) #back to [x,y,z,w] convention
-            quat_gym_ENU = np.array([quat_gym_NED[1],quat_gym_NED[0],-quat_gym_NED[2],quat_gym_NED[3]])
-            rpy_ENU = R.from_quat(quat_gym_ENU).as_euler('xyz', degrees=False)
-            rpy_FLU = np.array([rpy_ENU[1], -rpy_ENU[0], rpy_ENU[2]+self.yaw_offset])
+            #quat_gym_ENU = np.array([quat_gym_NED[1],quat_gym_NED[0],-quat_gym_NED[2],quat_gym_NED[3]]) # ignore this step?
+            r_NED = R.from_quat(quat_gym_NED)
+            rpy_NED = r_NED.as_euler('xyz', degrees=False) # roll pitch yaw of body frame to NED # extrinsic
+            print("rpy_NED: ",rpy_NED)
+            exit()
+            R_NED = r_NED.as_matrix()
+            rpy_fr_NED = rpy_NED
+            rpy_fr_NED[2] = rpy_NED[2]-self.yaw_offset # roll pitch yaw of body frame to forrestal frame, NED
+            #print("rpy_fr_NED: ",rpy_fr_NED)
+            rpy_fr_ENU = np.array([rpy_fr_NED[0],-rpy_fr_NED[1],-rpy_fr_NED[2]]) # roll pitch yaw of body frame to forrestal frame, ENU
+            #print("rpy_fr_ENU: ",rpy_fr_ENU) # ENU frame where E = x_fr, N = -y_fr
+            r_fr_ENU = R.from_euler('xyz',rpy_fr_ENU, degrees=False)
+            R_fr_ENU = r_fr_ENU.as_matrix() # rotation matrix from forrestal frame, ENU to body frame
+            #print("R_fr_ENU: ",R_fr_ENU) # ENU frame where E = x_fr, N = -y_fr
+            #np.matmul(R_fr_ENU,np.array([1,0,0]))
+            # print("rpy_fr_ENU: ",rpy_fr_ENU)
+            # print(R_NED)
+            # exit(R_fr_ENU)
+            #rpy_FLU = np.array([rpy_ENU[1], -rpy_ENU[0], rpy_ENU[2]+self.yaw_offset])
             #vel_ENU = np.array([self.vehicle_vel_[1],self.vehicle_vel_[0],-self.vehicle_vel_[2]])
-            vel_fr_FRD = np.matmul(np.transpose(Rz),self.vehicle_vel_) # velocity in the forrestal frame, fixed FRD
-            vel_fr_FLU = np.array([vel_fr_FRD[0],-vel_fr_FRD[1],-vel_fr_FRD[2]]) # velocity in the forrestal, fixed FLU
+            vel_fr_NED = np.matmul(np.transpose(Rz),self.vehicle_vel_)  # rotate NED velocity to forrestal frame
+            vel_fr_ENU = np.array([vel_fr_NED[0],-vel_fr_NED[1],-vel_fr_NED[2]]) # forrestal frame ENU
             #ang_vel_ENU = np.array([self.vehicle_ang_v_[1],self.vehicle_ang_v_[0],-self.vehicle_ang_v_[2]])
-            ang_vel_FLU = np.array([self.vehicle_ang_v_[0],-self.vehicle_ang_v_[1],-self.vehicle_ang_v_[2]]) # ang vel in body FLU
-
-            print("pos_fr_FRD: ",pos_fr_FRD)
-            #print()
-
-            obs_state = np.hstack((pos_fr_FLU, rpy_FLU, vel_fr_FLU, ang_vel_FLU))
+            ang_vel_fr_ENU = np.matmul(R_fr_ENU,np.array([self.vehicle_ang_v_[0],-self.vehicle_ang_v_[1],-self.vehicle_ang_v_[2]])) # ang vel in forrestal ENU frame
+            # print("ang_vel_fr_ENU: ",ang_vel_fr_ENU)
+            # exit()
+            obs_state = np.hstack((pos_fr_ENU, rpy_fr_ENU, vel_fr_ENU, ang_vel_fr_ENU))
             #print(obs_state)
             # obs_wind = np.zeros((3))    # TODO: add real wind observation
             obs_state = normalize_obs(obs_state)    # TODO: normalize wind
-            # obs = torch.from_numpy(np.hstack((obs_state, obs_wind))).float()
-            obs = torch.from_numpy(obs_state).float()
+            obs = torch.from_numpy(np.hstack((obs_state, wind_obs_current))).float()
+            #obs = torch.from_numpy(obs_state).float()
             residual = self.mlp.infer(obs)
         else:
             residual = np.zeros((4))
 
         # Un-normalize residual
-        rate_residual = residual[:-1] * self.rate_residual_scale#*0#-0.3->0.3 rad/sec
+        rate_residual = residual[:-1] * self.rate_residual_scale*0#-0.3->0.3 rad/sec
         #increase pitch scale
         #rate_residual[1] *= 2
-        thrust_residual = residual[-1] * self.thrust_residual_scale#*0#-1->1 N
+        thrust_residual = residual[-1] * self.thrust_residual_scale*0#-1->1 N
         #print("ENU residual: ", rate_residual, thrust_residual) # ENU
-        NED_rate_residual = np.array([rate_residual[1],rate_residual[0],-rate_residual[2]])
+        body_rate_residual = np.matmul(np.transpose(R_fr_ENU),rate_residual) # ang vel from forrestal ENU frame to body frame
+
         #print("NED_rate_residual: ", NED_rate_residual) # NED
 
         # NOTE: the PX4 body frame is NED. The PX4 uses the compass to find NORTH and places the POSITIVE X direction in that direction.
@@ -351,17 +383,17 @@ class OffboardControl(Node):
         control = ctrl[0].computeRateAndThrustFromState(
             state=state_vec, #proper shape: (20,)
             target_pos=np.array([float(x_NED),float(y_NED),float(z_NED)]), #proper shape: (3,),
-            rate_residual=NED_rate_residual,
+            rate_residual=body_rate_residual,
             thrust_residual=thrust_residual,
             target_rpy=np.array([0,0,self.yaw_offset]),
         )
 
         msg = flowdrone_t()
         gym_state_vec = np.zeros([20,])
-        gym_state_vec[0:3] = pos_fr_FLU
-        gym_state_vec[7:10] = rpy_FLU
-        gym_state_vec[10:13] = vel_fr_FLU
-        gym_state_vec[13:16] = ang_vel_FLU
+        gym_state_vec[0:3] = pos_fr_ENU
+        gym_state_vec[7:10] = rpy_fr_ENU
+        gym_state_vec[10:13] = vel_fr_ENU
+        gym_state_vec[13:16] = ang_vel_fr_ENU
         
         msg.drone_state = gym_state_vec #state_vec
         msg.thrust_sp = control[1]
@@ -369,7 +401,7 @@ class OffboardControl(Node):
         msg.wind_magnitude_estimate = latest_msg.wind_estimate
         msg.wind_angle_estimate = latest_msg.angle_estimate
         msg.thrust_residual = thrust_residual
-        msg.body_rate_residual = NED_rate_residual
+        msg.body_rate_residual = body_rate_residual
         
         #print("wind_estimate: ",latest_msg.wind_estimate, "angle_estimate: ",latest_msg.angle_estimate)
 
@@ -429,6 +461,8 @@ def my_handler(channel, data):
     global latest_msg
     latest_msg.wind_estimate = wind_estimate
     latest_msg.angle_estimate = angle_estimate
+
+    self.wind_all += [wind_estimate]
     #print("wind_estimate: ",latest_msg.wind_estimate, "angle_estimate: ",latest_msg.angle_estimate)
 
 def main(argc, argv):

@@ -1,0 +1,20 @@
+
+policy_path: models/step_rising_8_unaware.pth #policy_path: models/step_rising_6_unaware.pth
+net_arch:
+ - 12
+ - 512
+ - 256
+ - 128
+ - 128
+ - 4
+# wind
+wind_aware: False #!
+rolling_period: 0.1
+wind_num_frame: 0 #!
+wind_frame_skip: 0 
+max_wind: 5
+wind_freq: 40
+#
+rate_residual_scale: 0.3
+thrust_residual_scale: 1 # ~5% of body weight
+max_px4_rate: 0.1

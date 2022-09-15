@@ -14,7 +14,7 @@ class flowdrone_t(object):
 
     __typenames__ = ["int64_t", "double", "double", "double", "double", "double", "double", "double", "double"]
 
-    __dimensions__ = [None, [20], None, None, [3], [3], None, [15], None]
+    __dimensions__ = [None, [20], None, None, [3], [3], None, [5], None]
 
     def __init__(self):
         self.timestamp = 0
@@ -24,7 +24,7 @@ class flowdrone_t(object):
         self.body_rate_sp = [ 0.0 for dim0 in range(3) ]
         self.body_rate_residual = [ 0.0 for dim0 in range(3) ]
         self.wind_magnitude_estimate = 0.0
-        self.wind_obs_current = [ 0.0 for dim0 in range(15) ]
+        self.wind_obs_current = [ 0.0 for dim0 in range(5) ]
         self.wind_angle_estimate = 0.0
 
     def encode(self):
@@ -40,7 +40,7 @@ class flowdrone_t(object):
         buf.write(struct.pack('>3d', *self.body_rate_sp[:3]))
         buf.write(struct.pack('>3d', *self.body_rate_residual[:3]))
         buf.write(struct.pack(">d", self.wind_magnitude_estimate))
-        buf.write(struct.pack('>15d', *self.wind_obs_current[:15]))
+        buf.write(struct.pack('>5d', *self.wind_obs_current[:5]))
         buf.write(struct.pack(">d", self.wind_angle_estimate))
 
     def decode(data):
@@ -61,14 +61,14 @@ class flowdrone_t(object):
         self.body_rate_sp = struct.unpack('>3d', buf.read(24))
         self.body_rate_residual = struct.unpack('>3d', buf.read(24))
         self.wind_magnitude_estimate = struct.unpack(">d", buf.read(8))[0]
-        self.wind_obs_current = struct.unpack('>15d', buf.read(120))
+        self.wind_obs_current = struct.unpack('>5d', buf.read(40))
         self.wind_angle_estimate = struct.unpack(">d", buf.read(8))[0]
         return self
     _decode_one = staticmethod(_decode_one)
 
     def _get_hash_recursive(parents):
         if flowdrone_t in parents: return 0
-        tmphash = (0xa84d580d41a56c90) & 0xffffffffffffffff
+        tmphash = (0x34f1a9893c8cc9f0) & 0xffffffffffffffff
         tmphash  = (((tmphash<<1)&0xffffffffffffffff) + (tmphash>>63)) & 0xffffffffffffffff
         return tmphash
     _get_hash_recursive = staticmethod(_get_hash_recursive)

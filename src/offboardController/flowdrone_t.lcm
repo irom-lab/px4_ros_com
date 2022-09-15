@@ -9,6 +9,6 @@ struct flowdrone_t
     double  body_rate_sp[3];
     double  body_rate_residual[3];
     double  wind_magnitude_estimate;
-    double  wind_obs_current[15];
+    double  wind_obs_current[5];
     double  wind_angle_estimate;
 }

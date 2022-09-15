@@ -122,7 +122,7 @@ class OffboardControl(Node):
         # Tested 220902 7:51 pm - works marvelously
 
 
-        yaw_offset = 2.04 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
+        yaw_offset = 1.75 #140.0*np.pi/180 # [rad] what is the PX4's perceived yaw when oriented in the Forrestal Frame? (inspect ATTITUDE)
 
         # setpoints in the Forrestal Frame
         x_fr = 0.0         # [m]
